@@ -1,0 +1,21 @@
+﻿controllers/admin.controller.ts(1,10): error TS1484: 'Request' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+controllers/admin.controller.ts(1,19): error TS1484: 'Response' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+controllers/admin.controller.ts(5,10): error TS1484: 'AuthRequest' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+controllers/admin.controller.ts(61,5): error TS2322: Type 'string' is not assignable to type 'ObjectId'.
+controllers/auth.controller.ts(1,10): error TS1484: 'Request' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+controllers/auth.controller.ts(1,19): error TS1484: 'Response' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+controllers/auth.controller.ts(6,10): error TS1484: 'AuthRequest' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+controllers/auth.controller.ts(90,32): error TS2339: Property 'matchPassword' does not exist on type 'Document<unknown, {}, { name: string; password: string; role: "ADMIN" | "STAFF" | "KARIGAR"; isApproved: boolean; isActive: boolean; language: "EN" | "HI"; approvedAt?: NativeDate | null; ... 4 more ...; approvedBy?: ObjectId | null; } & DefaultTimestampProps, {}, { ...; }> & { ...; } & DefaultTimestampProps & { ......'.
+controllers/auth.controller.ts(114,30): error TS2352: Conversion of type 'ObjectId' to type 'string' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+index.ts(16,18): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+middlewares/auth.middleware.ts(3,10): error TS1484: 'Response' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+middlewares/auth.middleware.ts(3,20): error TS1484: 'NextFunction' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+middlewares/auth.middleware.ts(4,10): error TS1484: 'AuthRequest' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+middlewares/auth.middleware.ts(20,7): error TS2322: Type '{ [key: string]: any; _id: string; role: "ADMIN" | "STAFF" | "KARIGAR"; } | null' is not assignable to type '{ [key: string]: any; _id: string; role: "ADMIN" | "STAFF" | "KARIGAR"; }'.
+  Type 'null' is not assignable to type '{ [key: string]: any; _id: string; role: "ADMIN" | "STAFF" | "KARIGAR"; }'.
+middlewares/role.middleware.ts(1,10): error TS1484: 'Response' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+middlewares/role.middleware.ts(1,20): error TS1484: 'NextFunction' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+middlewares/role.middleware.ts(2,10): error TS1484: 'AuthRequest' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+models/user.model.ts(49,52): error TS7006: Parameter 'enteredPassword' implicitly has an 'any' type.
+types/auth.ts(1,10): error TS1484: 'Request' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.

@@ -10,8 +10,8 @@ import adminRoutes from './routes/admin.routes.js';
 const app = express();
 const httpServer = createServer(app);
 
-const PORT = process.env.PORT || 3000;
-const MONGO_URI = process.env.MONGO_URI;
+const PORT = process.env.PORT || '3000';
+const MONGO_URI = process.env.MONGO_URI as string;
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log('Connected to MongoDB'))

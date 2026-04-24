@@ -1,15 +1,17 @@
+import type { Request, Response } from 'express';
 import User from '../models/user.model.js';
 import Staff from '../models/staff.model.js';
 import Karigar from '../models/karigar.model.js';
 import jwt from 'jsonwebtoken';
+import type { AuthRequest } from '../types/auth.js';
 
-const generateToken = (id) => {
+const generateToken = (id: string) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || 'secret', {
     expiresIn: '30d',
   });
 };
 
-export const register = async (req, res) => {
+export const register = async (req: Request, res: Response) => {
   try {
     const { name, email, phone, password, role, ...otherDetails } = req.body;
 
@@ -65,12 +67,12 @@ export const register = async (req, res) => {
       }
     });
 
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-export const login = async (req, res) => {
+export const login = async (req: Request, res: Response) => {
   try {
     const { email, phone, password } = req.body;
 
@@ -85,7 +87,7 @@ export const login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    const isMatch = await user.matchPassword(password);
+    const isMatch = await (user as any).matchPassword(password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -109,18 +111,27 @@ export const login = async (req, res) => {
         email: user.email,
         phone: user.phone,
         role: user.role,
-        token: generateToken(user._id),
+        token: generateToken(user._id.toString()),
       }
     });
 
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-export const getMe = async (req, res) => {
+export const getMe = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized: User information missing' });
+    }
+
     const user = await User.findById(req.user._id);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
     let profileDetails = null;
 
     if (user.role === 'STAFF') {
@@ -136,12 +147,12 @@ export const getMe = async (req, res) => {
         profile: profileDetails
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-export const logout = async (req, res) => {
+export const logout = async (req: Request, res: Response) => {
   // Client-side should clear the token
   res.status(200).json({
     success: true,
