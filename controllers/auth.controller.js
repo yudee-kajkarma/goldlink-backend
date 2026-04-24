@@ -13,8 +13,12 @@ export const register = async (req, res) => {
   try {
     const { name, email, phone, password, role, ...otherDetails } = req.body;
 
-    if (!['ADMIN', 'STAFF', 'KARIGAR'].includes(role)) {
-      return res.status(400).json({ success: false, message: 'Invalid role' });
+    if (role === 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Admin registration is not allowed through this endpoint' });
+    }
+
+    if (!['STAFF', 'KARIGAR'].includes(role)) {
+      return res.status(400).json({ success: false, message: 'Invalid role. Only STAFF and KARIGAR are allowed.' });
     }
 
     const userExists = await User.findOne({ $or: [{ email }, { phone }] });
@@ -22,9 +26,9 @@ export const register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User with this email or phone already exists' });
     }
 
-    // Default approval to false unless it's an admin for initial setup
-    const isApproved = role === 'ADMIN' ? true : false;
-    const isActive = role === 'ADMIN' ? true : false;
+    // Default approval and active status to false for staff and karigar
+    const isApproved = false;
+    const isActive = false;
 
     const user = await User.create({
       name,
