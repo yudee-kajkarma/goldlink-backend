@@ -6,6 +6,8 @@ import mongoose from 'mongoose';
 
 import authRoutes from './routes/auth.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import staffRoutes from './routes/staff.routes.js';
+import karigarRoutes from './routes/karigar.routes.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -22,6 +24,8 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/staff', staffRoutes);
+app.use('/api/karigar', karigarRoutes);
 
 httpServer.listen(PORT, function () {
   console.log(`Server is running on port ${PORT}`);

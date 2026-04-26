@@ -14,4 +14,11 @@ router.get('/users/:id', getUserById);
 router.patch('/users/:id/approve', approveUser);
 router.patch('/users/:id/deactivate', deactivateUser);
 
+import { getOrders, getOrderById, reassignOrder, exportOrders } from '../controllers/admin.controller.js';
+
+router.get('/orders', getOrders);
+router.get('/orders/export', exportOrders);
+router.get('/orders/:id', getOrderById);
+router.patch('/orders/:id/reassign', reassignOrder);
+
 export default router;
