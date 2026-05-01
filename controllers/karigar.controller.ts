@@ -64,6 +64,9 @@ export const acceptOrder = async (req: AuthRequest, res: Response) => {
 // Update order status
 export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({ success: false, message: 'Request body is missing' });
+    }
     const { status } = req.body;
 
     if (!status) {
@@ -99,6 +102,9 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 // Mark complete (upload images)
 export const completeOrder = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({ success: false, message: 'Request body is missing' });
+    }
     const { images, completionNote } = req.body; // Expecting an array of image URLs
 
     if (!images || !Array.isArray(images) || images.length === 0) {

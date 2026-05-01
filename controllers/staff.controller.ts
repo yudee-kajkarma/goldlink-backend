@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import Order from '../models/order.model.js';
 import type { AuthRequest } from '../types/auth.js';
+import { s3Service } from '../services/s3.service.js';
 
 // Helper to generate order code
 const generateOrderCode = async () => {
@@ -37,12 +38,25 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       expectedDeliveryDate,
       priority: priority || 'NORMAL',
       customerRef,
-      images: images || [],
+      images: [], // Start with empty images
       statusLogs: [{
         status: 'PENDING',
         updatedBy: req.user?._id,
       }]
     });
+
+    // Handle image uploads if files exist
+    const files = req.files as Express.Multer.File[];
+    if (files && files.length > 0) {
+      const uploadPromises = files.map(file => 
+        s3Service.uploadFile(file.buffer, file.mimetype, 'orders', order._id.toString())
+      );
+      const keys = await Promise.all(uploadPromises);
+      
+      // Update order with S3 keys
+      order.images = keys.map(key => ({ url: key, type: 'INITIAL' }));
+      await order.save();
+    }
 
     res.status(201).json({ success: true, data: order });
   } catch (error: any) {
@@ -106,6 +120,9 @@ export const updateOrder = async (req: AuthRequest, res: Response) => {
 // Change order status (e.g., RECEIVED)
 export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({ success: false, message: 'Request body is missing. Ensure you are sending JSON with Content-Type: application/json' });
+    }
     const { status } = req.body;
 
     if (!status) {
@@ -160,6 +177,9 @@ export const requestRevision = async (req: AuthRequest, res: Response) => {
 // Payments endpoints
 export const addPayment = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({ success: false, message: 'Request body is missing' });
+    }
     const { amount, type, status } = req.body;
 
     const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });
@@ -200,6 +220,9 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
 // Material endpoints
 export const addIssuedMaterial = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({ success: false, message: 'Request body is missing' });
+    }
     const { issuedWeight } = req.body;
 
     const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });

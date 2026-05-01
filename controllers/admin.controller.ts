@@ -17,7 +17,7 @@ export const getUsers = async (req: Request, res: Response) => {
     const users = await User.find(query).select('-password');
     res.status(200).json({ success: true, count: users.length, data: users });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: "GL401" });
   }
 };
 
@@ -26,7 +26,7 @@ export const getUserById = async (req: Request, res: Response) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL102" });
     }
 
     let profileDetails = null;
@@ -41,7 +41,7 @@ export const getUserById = async (req: Request, res: Response) => {
       data: { ...user.toObject(), profile: profileDetails } 
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: "GL401" });
   }
 };
 
@@ -50,11 +50,11 @@ export const approveUser = async (req: AuthRequest, res: Response) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL102" });
     }
 
     if (!req.user || !req.user._id) {
-      return res.status(401).json({ success: false, message: 'Unauthorized: User information missing' });
+      return res.status(401).json({ success: false, message: 'Unauthorized: User information missing', errorCode: "GL101" });
     }
 
     user.isApproved = true;
@@ -66,7 +66,7 @@ export const approveUser = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, message: 'User approved successfully', data: user });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: "GL401" });
   }
 };
 
@@ -75,7 +75,7 @@ export const deactivateUser = async (req: Request, res: Response) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL102" });
     }
 
     user.isActive = false;
@@ -83,7 +83,7 @@ export const deactivateUser = async (req: Request, res: Response) => {
 
     res.status(200).json({ success: true, message: 'User deactivated successfully', data: user });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: "GL401" });
   }
 };
 
@@ -107,7 +107,7 @@ export const getOrders = async (req: Request, res: Response) => {
       
     res.status(200).json({ success: true, count: orders.length, data: orders });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: "GL401" });
   }
 };
 
@@ -119,39 +119,40 @@ export const getOrderById = async (req: Request, res: Response) => {
       .populate('assignedTo', 'name email phone');
       
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: "GL301" });
     }
     
     res.status(200).json({ success: true, data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: "GL401" });
   }
 };
 
 // Reassign order to a different karigar
 export const reassignOrder = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({ success: false, message: 'Request body is missing', errorCode: "GL201" });
+    }
     const { karigarId } = req.body;
     
     if (!karigarId) {
-      return res.status(400).json({ success: false, message: 'karigarId is required' });
+      return res.status(400).json({ success: false, message: 'karigarId is required', errorCode: "GL201" });
     }
 
     const order = await Order.findById(req.params.id);
     
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: "GL301" });
     }
 
-    // Verify if the new karigar exists and is active/approved
     const karigar = await User.findOne({ _id: karigarId, role: 'KARIGAR', isActive: true });
     if (!karigar) {
-      return res.status(400).json({ success: false, message: 'Invalid or inactive Karigar selected' });
+      return res.status(400).json({ success: false, message: 'Invalid or inactive Karigar selected', errorCode: "GL201" });
     }
 
     order.assignedTo = karigarId as any;
     
-    // Log the status change
     if (req.user && req.user._id) {
       order.statusLogs.push({
         status: 'REASSIGNED',
@@ -164,7 +165,7 @@ export const reassignOrder = async (req: AuthRequest, res: Response) => {
     
     res.status(200).json({ success: true, message: 'Order reassigned successfully', data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: "GL401" });
   }
 };
 
@@ -172,9 +173,8 @@ export const reassignOrder = async (req: AuthRequest, res: Response) => {
 export const exportOrders = async (req: Request, res: Response) => {
   try {
     const orders = await Order.find().populate('createdBy', 'name').populate('assignedTo', 'name');
-    // In a real scenario, convert `orders` to CSV/PDF
     res.status(200).json({ success: true, message: 'Export logic here. Returning JSON for now.', data: orders });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: "GL401" });
   }
 };

@@ -37,6 +37,8 @@ export interface IOrder extends Document {
   }>;
   createdAt: Date;
   updatedAt: Date;
+  id?: string;
+  orderId?: string;
 }
 
 const orderSchema = new Schema<IOrder>(
@@ -150,12 +152,21 @@ const orderSchema = new Schema<IOrder>(
       },
     ],
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+  }
 );
 
 // Indexes
-orderSchema.index({ orderCode: 1 });
+// orderCode is already unique, so we don't need a separate index definition here
 orderSchema.index({ assignedTo: 1 });
 orderSchema.index({ status: 1 });
+
+// Virtuals
+orderSchema.virtual('orderId').get(function() {
+  return this._id.toString();
+});
 
 export default mongoose.model<IOrder>("Order", orderSchema);

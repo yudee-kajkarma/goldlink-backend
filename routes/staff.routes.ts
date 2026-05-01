@@ -1,6 +1,7 @@
 import express from 'express';
 import { protect } from '../middlewares/auth.middleware.js';
 import { authorize } from '../middlewares/role.middleware.js';
+import { uploadMiddleware, validateMediaSize } from '../middlewares/multer.js';
 import {
   createOrder,
   getMyOrders,
@@ -20,7 +21,7 @@ router.use(protect);
 router.use(authorize('STAFF'));
 
 // Order routes
-router.post('/orders', createOrder);
+router.post('/orders', uploadMiddleware.array('images', 10), validateMediaSize, createOrder);
 router.get('/orders', getMyOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id', updateOrder);

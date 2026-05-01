@@ -16,16 +16,16 @@ export const register = async (req: Request, res: Response) => {
     const { name, email, phone, password, role, ...otherDetails } = req.body;
 
     if (role === 'ADMIN') {
-      return res.status(403).json({ success: false, message: 'Admin registration is not allowed through this endpoint' });
+      return res.status(403).json({ success: false, message: 'Admin registration is not allowed through this endpoint', errorCode: 'GL201' });
     }
 
     if (!['STAFF', 'KARIGAR'].includes(role)) {
-      return res.status(400).json({ success: false, message: 'Invalid role. Only STAFF and KARIGAR are allowed.' });
+      return res.status(400).json({ success: false, message: 'Invalid role. Only STAFF and KARIGAR are allowed.', errorCode: 'GL201' });
     }
 
     const userExists = await User.findOne({ $or: [{ email }, { phone }] });
     if (userExists) {
-      return res.status(400).json({ success: false, message: 'User with this email or phone already exists' });
+      return res.status(400).json({ success: false, message: 'User with this email or phone already exists', errorCode: 'GL201' });
     }
 
     // Default approval and active status to false for staff and karigar
@@ -68,7 +68,7 @@ export const register = async (req: Request, res: Response) => {
     });
 
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: 'GL401' });
   }
 };
 
@@ -77,19 +77,19 @@ export const login = async (req: Request, res: Response) => {
     const { email, phone, password } = req.body;
 
     if ((!email && !phone) || !password) {
-      return res.status(400).json({ success: false, message: 'Please provide email/phone and password' });
+      return res.status(400).json({ success: false, message: 'Please provide email/phone and password', errorCode: 'GL201' });
     }
 
     const query = email ? { email } : { phone };
     const user = await User.findOne(query).select('+password');
 
     if (!user) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials', errorCode: 'GL101' });
     }
 
     const isMatch = await (user as any).matchPassword(password);
     if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials', errorCode: 'GL101' });
     }
 
     if (!user.isApproved) {
@@ -116,7 +116,7 @@ export const login = async (req: Request, res: Response) => {
     });
 
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: 'GL401' });
   }
 };
 
@@ -129,7 +129,7 @@ export const getMe = async (req: AuthRequest, res: Response) => {
     const user = await User.findById(req.user._id);
     
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ success: false, message: 'User not found', errorCode: 'GL102' });
     }
 
     let profileDetails = null;
@@ -148,7 +148,7 @@ export const getMe = async (req: AuthRequest, res: Response) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message, errorCode: 'GL401' });
   }
 };
 
