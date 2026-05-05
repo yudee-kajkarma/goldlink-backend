@@ -3,6 +3,7 @@ import { Server as HttpServer } from 'http';
 import jwt from 'jsonwebtoken';
 import User from '../models/user.model.js';
 import registerChatHandlers from './chat.socket.js';
+import { JWT_SECRET } from '../config/jwt.js';
 
 export let io: Server;
 
@@ -30,11 +31,18 @@ export const initializeSocket = (httpServer: HttpServer) => {
         return next(new Error('Authentication error: Token missing'));
       }
 
-      const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      // #region agent log
+      fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H2',location:'sockets/index.ts:33',message:'socket token verification path',data:{hasJwtSecret:Boolean(process.env.JWT_SECRET),hasToken:Boolean(token)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       const user = await User.findById(decoded.id);
 
       if (!user) {
         return next(new Error('Authentication error: User not found'));
+      }
+
+      if (!user.isActive || !user.isApproved) {
+        return next(new Error('Authentication error: Account is not active'));
       }
 
       // Attach user to socket

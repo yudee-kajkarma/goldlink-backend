@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import Order from '../models/order.model.js';
+import Counter from '../models/counter.model.js';
 import type { AuthRequest } from '../types/auth.js';
 import { s3Service } from '../services/s3.service.js';
 
@@ -8,9 +9,16 @@ const generateOrderCode = async () => {
   const date = new Date();
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
-  
-  const count = await Order.countDocuments();
-  const sequence = String(count + 1).padStart(3, '0');
+  const counterKey = `${year}-${month}`;
+  const counter = await Counter.findOneAndUpdate(
+    { key: counterKey },
+    { $inc: { seq: 1 } },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+  // #region agent log
+  fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'post-fix',hypothesisId:'H3',location:'controllers/staff.controller.ts:12',message:'order code counter sequence generated',data:{year,month,counterKey,seq:counter?.seq},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  const sequence = String(counter?.seq ?? 1).padStart(3, '0');
   
   return `ORD-${year}-${month}-${sequence}`;
 };
@@ -68,7 +76,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 export const getMyOrders = async (req: AuthRequest, res: Response) => {
   try {
     const orders = await Order.find({ createdBy: req.user?._id })
-      .populate('assignedTo', 'name email phone')
+      .populate('assignedTo', 'name role')
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, count: orders.length, data: orders });
@@ -81,7 +89,7 @@ export const getMyOrders = async (req: AuthRequest, res: Response) => {
 export const getOrderById = async (req: AuthRequest, res: Response) => {
   try {
     const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id })
-      .populate('assignedTo', 'name email phone')
+      .populate('assignedTo', 'name role')
       .populate('statusLogs.updatedBy', 'name role')
       .populate('materialLogs.loggedBy', 'name role');
 
@@ -109,7 +117,14 @@ export const updateOrder = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Cannot update a completed or received order' });
     }
 
-    const updatedOrder = await Order.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    // #region agent log
+    fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H4',location:'controllers/staff.controller.ts:112',message:'updateOrder payload keys',data:{keys:Object.keys(req.body||{})},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    const allowedFields = ['weight', 'designNotes', 'purity', 'priority', 'expectedDeliveryDate', 'customerRef'] as const;
+    const updates = Object.fromEntries(
+      Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key as (typeof allowedFields)[number]))
+    );
+    const updatedOrder = await Order.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
 
     res.status(200).json({ success: true, data: updatedOrder });
   } catch (error: any) {
@@ -124,9 +139,16 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Request body is missing. Ensure you are sending JSON with Content-Type: application/json' });
     }
     const { status } = req.body;
+    // #region agent log
+    fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H4',location:'controllers/staff.controller.ts:126',message:'staff status update requested',data:{status},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     if (!status) {
       return res.status(400).json({ success: false, message: 'Status is required' });
+    }
+    const validStatuses = ['RECEIVED', 'REVISION_REQUESTED', 'ON_HOLD'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, message: `Invalid status update by Staff. Valid statuses: ${validStatuses.join(', ')}` });
     }
 
     const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });

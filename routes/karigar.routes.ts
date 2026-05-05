@@ -6,8 +6,10 @@ import {
   getOrderById,
   acceptOrder,
   updateOrderStatus,
-  completeOrder
+  completeOrder,
+  uploadCompletionMedia
 } from '../controllers/karigar.controller.js';
+import { uploadMiddleware, validateMediaSize } from '../middlewares/multer.js';
 
 const router = express.Router();
 
@@ -19,6 +21,7 @@ router.get('/orders', getAssignedOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/accept', acceptOrder);
 router.patch('/orders/:id/status', updateOrderStatus);
+router.post('/orders/:id/upload-completion-media', uploadMiddleware.single('media'), validateMediaSize, uploadCompletionMedia);
 router.post('/orders/:id/complete', completeOrder);
 
 export default router;

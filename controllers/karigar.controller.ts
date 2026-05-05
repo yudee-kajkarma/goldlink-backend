@@ -1,12 +1,13 @@
 import type { Request, Response } from 'express';
 import Order from '../models/order.model.js';
 import type { AuthRequest } from '../types/auth.js';
+import { s3Service } from '../services/s3.service.js';
 
 // Get assigned orders
 export const getAssignedOrders = async (req: AuthRequest, res: Response) => {
   try {
     const orders = await Order.find({ assignedTo: req.user?._id })
-      .populate('createdBy', 'name email phone')
+      .populate('createdBy', 'name role')
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, count: orders.length, data: orders });
@@ -19,7 +20,7 @@ export const getAssignedOrders = async (req: AuthRequest, res: Response) => {
 export const getOrderById = async (req: AuthRequest, res: Response) => {
   try {
     const order = await Order.findOne({ _id: req.params.id, assignedTo: req.user?._id })
-      .populate('createdBy', 'name email phone')
+      .populate('createdBy', 'name role')
       .populate('statusLogs.updatedBy', 'name role')
       .populate('materialLogs.loggedBy', 'name role');
 
@@ -105,7 +106,10 @@ export const completeOrder = async (req: AuthRequest, res: Response) => {
     if (!req.body) {
       return res.status(400).json({ success: false, message: 'Request body is missing' });
     }
-    const { images, completionNote } = req.body; // Expecting an array of image URLs
+    const { images, completionNote } = req.body; // Expecting an array of uploaded S3 keys
+    // #region agent log
+    fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H5',location:'controllers/karigar.controller.ts:108',message:'karigar completeOrder payload received',data:{hasImages:Array.isArray(images),imagesCount:Array.isArray(images)?images.length:0,firstImageType:Array.isArray(images)&&images.length>0?typeof images[0]:'none'},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     if (!images || !Array.isArray(images) || images.length === 0) {
       return res.status(400).json({ success: false, message: 'At least one completion image is required' });
@@ -124,8 +128,13 @@ export const completeOrder = async (req: AuthRequest, res: Response) => {
       order.designNotes = order.designNotes ? `${order.designNotes}\nCompletion Note: ${completionNote}` : completionNote;
     }
 
-    // Add completion images
-    const completionImages = images.map(url => ({ url, type: 'COMPLETION' as const }));
+    const invalidImageKeys = images.some((key: unknown) => typeof key !== 'string' || key.startsWith('http://') || key.startsWith('https://'));
+    if (invalidImageKeys) {
+      return res.status(400).json({ success: false, message: 'Invalid completion images. Use uploaded media keys only.' });
+    }
+
+    // Add completion image keys
+    const completionImages = images.map((key: string) => ({ url: key, type: 'COMPLETION' as const }));
     order.images.push(...completionImages);
 
     order.statusLogs.push({
@@ -137,6 +146,27 @@ export const completeOrder = async (req: AuthRequest, res: Response) => {
     await order.save();
 
     res.status(200).json({ success: true, message: 'Order marked as completed', data: order });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const uploadCompletionMedia = async (req: AuthRequest, res: Response) => {
+  try {
+    const orderId = req.params.id;
+    const file = req.file as Express.Multer.File;
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'No media file provided' });
+    }
+
+    const order = await Order.findOne({ _id: orderId, assignedTo: req.user?._id });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const key = await s3Service.uploadFile(file.buffer, file.mimetype, 'orders', orderId, 'completion');
+    return res.status(200).json({ success: true, mediaKey: key });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
