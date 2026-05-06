@@ -25,9 +25,6 @@ initializeSocket(httpServer);
 
 const PORT = process.env.PORT || '3000';
 const MONGO_URI = process.env.MONGO_URI as string;
-// #region agent log
-fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H0',location:'index.ts:24',message:'server boot instrumentation',data:{hasMongoUri:Boolean(MONGO_URI),hasJwtSecret:Boolean(process.env.JWT_SECRET)},timestamp:Date.now()})}).catch(()=>{});
-// #endregion
 
 mongoose.connect(MONGO_URI)
   .then(() => {

@@ -8,9 +8,6 @@ import { JWT_SECRET } from '../config/jwt.js';
 import { blacklistToken } from '../utils/tokenBlacklist.js';
 
 const generateToken = (id: string) => {
-  // #region agent log
-  fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'post-fix',hypothesisId:'H2',location:'controllers/auth.controller.ts:8',message:'generateToken called',data:{hasJwtSecret:Boolean(process.env.JWT_SECRET),expiresIn:'30m'},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   return jwt.sign({ id }, JWT_SECRET, {
     expiresIn: '30m',
   });

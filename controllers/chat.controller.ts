@@ -131,9 +131,6 @@ export const uploadMedia = async (req: AuthRequest, res: Response, next: NextFun
     if (userId !== order.createdBy.toString() && userId !== order.assignedTo.toString()) {
       return res.status(403).json({ success: false, message: 'Unauthorized access to this chat' });
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H5',location:'controllers/chat.controller.ts:73',message:'chat upload uses local storage service',data:{filename:req.file.filename||null,mimetype:req.file.mimetype,size:req.file.size},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     const subFolder = req.file.mimetype.startsWith('video/')
       ? 'videos'

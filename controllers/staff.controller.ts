@@ -18,9 +18,6 @@ const generateOrderCode = async () => {
     { $inc: { seq: 1 } },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
-  // #region agent log
-  fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'post-fix',hypothesisId:'H3',location:'controllers/staff.controller.ts:12',message:'order code counter sequence generated',data:{year,month,counterKey,seq:counter?.seq},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const sequence = String(counter?.seq ?? 1).padStart(3, '0');
   
   return `ORD-${year}-${month}-${sequence}`;
@@ -140,9 +137,6 @@ export const updateOrder = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Cannot update a completed or received order' });
     }
 
-    // #region agent log
-    fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H4',location:'controllers/staff.controller.ts:112',message:'updateOrder payload keys',data:{keys:Object.keys(req.body||{})},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     const allowedFields = ['weight', 'designNotes', 'purity', 'priority', 'expectedDeliveryDate', 'customerRef', 'totalAmount'] as const;
     const updates = Object.fromEntries(
       Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key as (typeof allowedFields)[number]))
@@ -159,9 +153,6 @@ export const updateOrder = async (req: AuthRequest, res: Response) => {
 export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   try {
     const { status } = req.body;
-    // #region agent log
-    fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H4',location:'controllers/staff.controller.ts:126',message:'staff status update requested',data:{status},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });
 

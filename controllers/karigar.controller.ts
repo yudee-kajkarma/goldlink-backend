@@ -101,9 +101,6 @@ export const completeOrder = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Request body is missing' });
     }
     const { images, completionNote } = req.body; // Expecting an array of uploaded S3 keys
-    // #region agent log
-    fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H5',location:'controllers/karigar.controller.ts:108',message:'karigar completeOrder payload received',data:{hasImages:Array.isArray(images),imagesCount:Array.isArray(images)?images.length:0,firstImageType:Array.isArray(images)&&images.length>0?typeof images[0]:'none'},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     if (!images || !Array.isArray(images) || images.length === 0) {
       return res.status(400).json({ success: false, message: 'At least one completion image is required' });
