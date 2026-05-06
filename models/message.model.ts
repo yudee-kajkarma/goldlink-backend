@@ -7,7 +7,10 @@ export interface IMessage extends Document {
   content?: string;
   mediaUrl?: string;
   duration?: number;
+  isDelivered: boolean;
+  deliveredAt?: Date;
   isRead: boolean;
+  readAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,7 +27,10 @@ const MessageSchema = new Schema<IMessage>(
     content: { type: String },
     mediaUrl: { type: String },
     duration: { type: Number },
+    isDelivered: { type: Boolean, default: false },
+    deliveredAt: { type: Date },
     isRead: { type: Boolean, default: false },
+    readAt: { type: Date },
   },
   { timestamps: true }
 );

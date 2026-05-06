@@ -1,8 +1,11 @@
 import type { Request, Response } from 'express';
 import Order from '../models/order.model.js';
 import Counter from '../models/counter.model.js';
+import User from '../models/user.model.js';
 import type { AuthRequest } from '../types/auth.js';
 import { s3Service } from '../services/s3.service.js';
+import { sendNotification } from '../services/notification.service.js';
+import { canTransitionOrderStatus } from '../services/orderStatusTransitions.service.js';
 
 // Helper to generate order code
 const generateOrderCode = async () => {
@@ -26,10 +29,27 @@ const generateOrderCode = async () => {
 // Create a new order
 export const createOrder = async (req: AuthRequest, res: Response) => {
   try {
-    const { assignedTo, jewelleryType, metalType, weight, designNotes, purity, expectedDeliveryDate, priority, customerRef, images } = req.body;
+    const {
+      assignedTo,
+      jewelleryType,
+      metalType,
+      weight,
+      designNotes,
+      purity,
+      expectedDeliveryDate,
+      priority,
+      customerRef,
+      totalAmount,
+    } = req.body;
 
-    if (!assignedTo || !jewelleryType || !metalType) {
-      return res.status(400).json({ success: false, message: 'Please provide all required fields' });
+    const karigar = await User.findOne({ _id: assignedTo, role: 'KARIGAR', isActive: true });
+    if (!karigar) {
+      return res.status(400).json({ success: false, message: 'assignedTo must be an active KARIGAR user' });
+    }
+
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length < 1) {
+      return res.status(400).json({ success: false, message: 'At least one reference image is required' });
     }
 
     const orderCode = await generateOrderCode();
@@ -44,31 +64,34 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       designNotes,
       purity,
       expectedDeliveryDate,
-      priority: priority || 'NORMAL',
+      priority: priority ?? 'NORMAL',
       customerRef,
-      images: [], // Start with empty images
+      totalAmount,
+      images: [],
       statusLogs: [{
         status: 'PENDING',
         updatedBy: req.user?._id,
       }]
     });
 
-    // Handle image uploads if files exist
-    const files = req.files as Express.Multer.File[];
-    if (files && files.length > 0) {
-      const uploadPromises = files.map(file => 
-        s3Service.uploadFile(file.buffer, file.mimetype, 'orders', order._id.toString())
-      );
-      const keys = await Promise.all(uploadPromises);
-      
-      // Update order with S3 keys
-      order.images = keys.map(key => ({ url: key, type: 'INITIAL' }));
-      await order.save();
-    }
+    const uploadPromises = files.map(file =>
+      s3Service.uploadFile(file.buffer, file.mimetype, 'orders', order._id.toString())
+    );
+    const keys = await Promise.all(uploadPromises);
+
+    order.images = keys.map(key => ({ url: key, type: 'INITIAL' as const }));
+    await order.save();
+
+    void sendNotification(
+      String(order.assignedTo),
+      'New order assigned',
+      `You have been assigned order ${order.orderCode}`,
+      { orderId: order._id.toString(), type: 'ORDER_ASSIGNED' }
+    );
 
     res.status(201).json({ success: true, data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -81,7 +104,7 @@ export const getMyOrders = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, count: orders.length, data: orders });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -99,7 +122,7 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -120,7 +143,7 @@ export const updateOrder = async (req: AuthRequest, res: Response) => {
     // #region agent log
     fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H4',location:'controllers/staff.controller.ts:112',message:'updateOrder payload keys',data:{keys:Object.keys(req.body||{})},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
-    const allowedFields = ['weight', 'designNotes', 'purity', 'priority', 'expectedDeliveryDate', 'customerRef'] as const;
+    const allowedFields = ['weight', 'designNotes', 'purity', 'priority', 'expectedDeliveryDate', 'customerRef', 'totalAmount'] as const;
     const updates = Object.fromEntries(
       Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key as (typeof allowedFields)[number]))
     );
@@ -128,28 +151,17 @@ export const updateOrder = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, data: updatedOrder });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
 // Change order status (e.g., RECEIVED)
 export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.body) {
-      return res.status(400).json({ success: false, message: 'Request body is missing. Ensure you are sending JSON with Content-Type: application/json' });
-    }
     const { status } = req.body;
     // #region agent log
     fetch('http://127.0.0.1:7717/ingest/705e965c-2004-4b41-b2ed-21f96665174a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'033cf0'},body:JSON.stringify({sessionId:'033cf0',runId:'pre-fix',hypothesisId:'H4',location:'controllers/staff.controller.ts:126',message:'staff status update requested',data:{status},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
-
-    if (!status) {
-      return res.status(400).json({ success: false, message: 'Status is required' });
-    }
-    const validStatuses = ['RECEIVED', 'REVISION_REQUESTED', 'ON_HOLD'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, message: `Invalid status update by Staff. Valid statuses: ${validStatuses.join(', ')}` });
-    }
 
     const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });
 
@@ -157,10 +169,15 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    order.status = status;
+    const nextStatus = status as 'RECEIVED' | 'REVISION_REQUESTED' | 'ON_HOLD';
+    if (!canTransitionOrderStatus(order.status, nextStatus)) {
+      return res.status(400).json({ success: false, message: 'Illegal order status transition' });
+    }
+
+    order.status = nextStatus;
     order.statusLogs.push({
-      status,
-      updatedBy: req.user?._id as any,
+      status: nextStatus,
+      updatedBy: req.user!._id,
       createdAt: new Date()
     });
 
@@ -168,7 +185,7 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -181,10 +198,14 @@ export const requestRevision = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
+    if (!canTransitionOrderStatus(order.status, 'REVISION_REQUESTED')) {
+      return res.status(400).json({ success: false, message: 'Illegal order status transition' });
+    }
+
     order.status = 'REVISION_REQUESTED';
     order.statusLogs.push({
       status: 'REVISION_REQUESTED',
-      updatedBy: req.user?._id as any,
+      updatedBy: req.user!._id,
       createdAt: new Date()
     });
 
@@ -192,7 +213,7 @@ export const requestRevision = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, message: 'Revision requested', data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -221,7 +242,7 @@ export const addPayment = async (req: AuthRequest, res: Response) => {
 
     res.status(201).json({ success: true, data: order.payments });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -235,7 +256,7 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, data: order.payments });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -255,7 +276,7 @@ export const addIssuedMaterial = async (req: AuthRequest, res: Response) => {
 
     order.materialLogs.push({
       issuedWeight,
-      loggedBy: req.user?._id as any,
+      loggedBy: req.user!._id,
       loggedAt: new Date()
     });
 
@@ -263,13 +284,13 @@ export const addIssuedMaterial = async (req: AuthRequest, res: Response) => {
 
     res.status(201).json({ success: true, data: order.materialLogs });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
 export const updateReturnedMaterial = async (req: AuthRequest, res: Response) => {
   try {
-    const { returnedWeight, logId } = req.body; // logId to update a specific log or just update the latest
+    const { returnedWeight, logId } = req.body;
 
     const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });
 
@@ -292,9 +313,12 @@ export const updateReturnedMaterial = async (req: AuthRequest, res: Response) =>
 
     const log = order.materialLogs[logIndex];
     if (log) {
+      const issued = log.issuedWeight;
       log.returnedWeight = returnedWeight;
-      if (log.issuedWeight !== undefined) {
-        log.wastage = log.issuedWeight - returnedWeight;
+      if (issued != null && !Number.isNaN(Number(issued))) {
+        log.wastage = Number(issued) - returnedWeight;
+      } else {
+        delete (log as { wastage?: number }).wastage;
       }
     }
 
@@ -302,6 +326,6 @@ export const updateReturnedMaterial = async (req: AuthRequest, res: Response) =>
 
     res.status(200).json({ success: true, data: order.materialLogs[logIndex] });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };

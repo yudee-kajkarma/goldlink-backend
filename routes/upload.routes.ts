@@ -9,7 +9,7 @@ const router = express.Router();
 router.post(
   '/upload/order/:orderId',
   protect,
-  uploadMiddleware.array('images', 10), // Allow up to 10 images
+  uploadMiddleware.array('images', 5),
   validateMediaSize,
   uploadOrderImages
 );

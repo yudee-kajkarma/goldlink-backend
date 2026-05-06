@@ -1,0 +1,128 @@
+import { Types } from 'mongoose';
+import { z } from 'zod';
+
+const objectIdString = z.string().refine((id) => Types.ObjectId.isValid(id), { message: 'Invalid id' });
+
+export const registerSchema = z
+  .object({
+    name: z.string().min(1),
+    email: z.string().email().optional(),
+    phone: z.string().min(1).optional(),
+    password: z.string().min(8),
+    role: z.enum(['STAFF', 'KARIGAR']),
+    department: z.string().optional(),
+    designation: z.string().optional(),
+    skillType: z.string().optional(),
+    experienceYears: z.coerce.number().optional(),
+  })
+  .refine((d) => Boolean(d.email) || Boolean(d.phone), { message: 'email or phone is required' });
+
+export const loginSchema = z
+  .object({
+    email: z.string().email().optional(),
+    phone: z.string().min(1).optional(),
+    password: z.string().min(1),
+  })
+  .refine((d) => Boolean(d.email) || Boolean(d.phone), { message: 'email or phone is required' });
+
+export const fcmTokenSchema = z.object({
+  fcmToken: z.string().min(1),
+});
+
+export const updateLanguageSchema = z.object({
+  language: z.preprocess(
+    (val) => (typeof val === 'string' ? val.toUpperCase() : val),
+    z.enum(['EN', 'HI'])
+  ),
+});
+
+export const adminCreateUserSchema = z
+  .object({
+    name: z.string().min(1),
+    email: z.string().email().optional(),
+    phone: z.string().min(1).optional(),
+    password: z.string().min(8),
+    role: z.enum(['STAFF', 'KARIGAR']),
+    department: z.string().optional(),
+    designation: z.string().optional(),
+    skillType: z.string().optional(),
+    experienceYears: z.coerce.number().optional(),
+  })
+  .refine((d) => Boolean(d.email) || Boolean(d.phone), { message: 'email or phone is required' });
+
+export const reassignOrderSchema = z.object({
+  karigarId: objectIdString,
+});
+
+const jewelleryTypes = ['Ring', 'Necklace', 'Bangle', 'Earring', 'Pendant'] as const;
+const metalTypes = ['Gold', 'Silver', 'Platinum', 'Rose Gold'] as const;
+
+export const createOrderBodySchema = z.object({
+  assignedTo: objectIdString,
+  jewelleryType: z.enum(jewelleryTypes),
+  metalType: z.enum(metalTypes),
+  weight: z.coerce.number().optional(),
+  designNotes: z.string().optional(),
+  purity: z.string().optional(),
+  expectedDeliveryDate: z.coerce.date().optional(),
+  priority: z.enum(['NORMAL', 'URGENT', 'EXPRESS']).optional(),
+  customerRef: z.string().optional(),
+  totalAmount: z.coerce.number().nonnegative().optional(),
+});
+
+export const staffOrderStatusSchema = z.object({
+  status: z.enum(['RECEIVED', 'REVISION_REQUESTED', 'ON_HOLD']),
+});
+
+export const addPaymentSchema = z.object({
+  amount: z.coerce.number().nonnegative(),
+  type: z.enum(['ADVANCE', 'FINAL']),
+  status: z.enum(['PAID', 'PENDING']).optional(),
+});
+
+export const addIssuedMaterialSchema = z.object({
+  issuedWeight: z.coerce.number().nonnegative(),
+});
+
+export const updateReturnedMaterialSchema = z.object({
+  returnedWeight: z.coerce.number().nonnegative(),
+  logId: z.string().optional(),
+});
+
+export const karigarOrderStatusSchema = z.object({
+  status: z.enum(['IN_PROGRESS', 'QUALITY_CHECK', 'ON_HOLD']),
+});
+
+export const completeOrderSchema = z.object({
+  images: z.array(z.string().min(1)).min(1),
+  completionNote: z.string().optional(),
+});
+
+export const sendMessageSchema = z
+  .object({
+    orderId: objectIdString,
+    content: z.string().optional(),
+    messageType: z.enum(['text', 'image', 'video', 'voice']).optional(),
+    mediaUrl: z.string().optional(),
+    duration: z.coerce.number().nonnegative().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const mt = data.messageType ?? 'text';
+    if (mt === 'text' && (!data.content || data.content.length === 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'content is required for text messages' });
+    }
+    if (['image', 'video', 'voice'].includes(mt) && !data.mediaUrl) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `mediaUrl is required for ${mt} messages` });
+    }
+    if (mt === 'voice') {
+      if (data.duration == null) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'duration is required for voice messages' });
+      } else if (data.duration > 120) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'voice note duration must be at most 120 seconds' });
+      }
+    }
+  });
+
+export const chatUploadBodySchema = z.object({
+  orderId: objectIdString,
+});

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import Order from '../models/order.model.js';
 import type { AuthRequest } from '../types/auth.js';
 import { s3Service } from '../services/s3.service.js';
+import { canTransitionOrderStatus } from '../services/orderStatusTransitions.service.js';
 
 // Get assigned orders
 export const getAssignedOrders = async (req: AuthRequest, res: Response) => {
@@ -12,7 +13,7 @@ export const getAssignedOrders = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, count: orders.length, data: orders });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -30,7 +31,7 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -43,14 +44,14 @@ export const acceptOrder = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    if (order.status !== 'PENDING') {
-      return res.status(400).json({ success: false, message: 'Order is not in PENDING state' });
+    if (!canTransitionOrderStatus(order.status, 'ACCEPTED')) {
+      return res.status(400).json({ success: false, message: 'Order cannot transition to ACCEPTED' });
     }
 
     order.status = 'ACCEPTED';
     order.statusLogs.push({
       status: 'ACCEPTED',
-      updatedBy: req.user?._id as any,
+      updatedBy: req.user?._id,
       createdAt: new Date()
     });
 
@@ -58,26 +59,14 @@ export const acceptOrder = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, message: 'Order accepted', data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
 // Update order status
 export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.body) {
-      return res.status(400).json({ success: false, message: 'Request body is missing' });
-    }
     const { status } = req.body;
-
-    if (!status) {
-      return res.status(400).json({ success: false, message: 'Status is required' });
-    }
-
-    const validStatuses = ['IN_PROGRESS', 'QUALITY_CHECK', 'ON_HOLD'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, message: `Invalid status update by Karigar. Valid statuses: ${validStatuses.join(', ')}` });
-    }
 
     const order = await Order.findOne({ _id: req.params.id, assignedTo: req.user?._id });
 
@@ -85,10 +74,15 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    order.status = status;
+    const nextStatus = status as 'IN_PROGRESS' | 'QUALITY_CHECK' | 'ON_HOLD';
+    if (!canTransitionOrderStatus(order.status, nextStatus)) {
+      return res.status(400).json({ success: false, message: 'Illegal order status transition' });
+    }
+
+    order.status = nextStatus;
     order.statusLogs.push({
-      status,
-      updatedBy: req.user?._id as any,
+      status: nextStatus,
+      updatedBy: req.user?._id,
       createdAt: new Date()
     });
 
@@ -96,7 +90,7 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -121,12 +115,14 @@ export const completeOrder = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
+    if (!canTransitionOrderStatus(order.status, 'COMPLETED')) {
+      return res.status(400).json({ success: false, message: 'Illegal order status transition' });
+    }
+
     order.status = 'COMPLETED';
     
-    // Add completion note to design notes or a new field if needed, for now we will append it or leave it out if schema doesn't support completionNote natively
-    if (completionNote) {
-      order.designNotes = order.designNotes ? `${order.designNotes}\nCompletion Note: ${completionNote}` : completionNote;
-    }
+    // PRD: completion notes must be stored in a dedicated field.
+    if (completionNote) order.completionNote = completionNote;
 
     const invalidImageKeys = images.some((key: unknown) => typeof key !== 'string' || key.startsWith('http://') || key.startsWith('https://'));
     if (invalidImageKeys) {
@@ -139,7 +135,7 @@ export const completeOrder = async (req: AuthRequest, res: Response) => {
 
     order.statusLogs.push({
       status: 'COMPLETED',
-      updatedBy: req.user?._id as any,
+      updatedBy: req.user?._id,
       createdAt: new Date()
     });
 
@@ -147,17 +143,22 @@ export const completeOrder = async (req: AuthRequest, res: Response) => {
 
     res.status(200).json({ success: true, message: 'Order marked as completed', data: order });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
 export const uploadCompletionMedia = async (req: AuthRequest, res: Response) => {
   try {
-    const orderId = req.params.id;
+    const rawId = req.params.id;
+    const orderId = typeof rawId === 'string' ? rawId : rawId?.[0];
     const file = req.file as Express.Multer.File;
 
     if (!file) {
       return res.status(400).json({ success: false, message: 'No media file provided' });
+    }
+
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: 'Order id is required' });
     }
 
     const order = await Order.findOne({ _id: orderId, assignedTo: req.user?._id });
@@ -168,6 +169,6 @@ export const uploadCompletionMedia = async (req: AuthRequest, res: Response) => 
     const key = await s3Service.uploadFile(file.buffer, file.mimetype, 'orders', orderId, 'completion');
     return res.status(200).json({ success: true, mediaKey: key });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };

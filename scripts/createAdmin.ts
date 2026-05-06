@@ -1,13 +1,20 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import User from '../models/user.model.js';
 
 // Load environment variables from the root .env file
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '../.env') });
+
+// Resolve the .env path without relying on where the script is launched from.
+const cwdEnvPath = path.resolve(process.cwd(), '.env');
+const scriptEnvPath = path.resolve(__dirname, '../.env');
+const envPath = fs.existsSync(cwdEnvPath) ? cwdEnvPath : scriptEnvPath;
+
+dotenv.config({ path: envPath });
 
 const createAdmin = async () => {
   try {

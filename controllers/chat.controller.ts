@@ -3,12 +3,14 @@ import { Message } from '../models/message.model.js';
 import Order from '../models/order.model.js';
 import type { AuthRequest } from '../types/auth.js';
 import { s3Service } from '../services/s3.service.js';
+import { io } from '../sockets/index.js';
 
 export const getMessages = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { orderId } = req.params;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 50;
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
 
     const order = await Order.findById(orderId);
     if (!order) {
@@ -22,12 +24,33 @@ export const getMessages = async (req: AuthRequest, res: Response, next: NextFun
         }
     }
 
-    const messages = await Message.find({ orderId })
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit);
+    let messages;
+    let nextCursor: string | null = null;
 
-    return res.status(200).json({ success: true, count: messages.length, data: messages });
+    // Cursor-based pagination on _id to avoid skip() shifting under concurrent inserts.
+    if (cursor) {
+      const docs = await Message.find({ orderId, _id: { $lt: cursor } })
+        .sort({ _id: -1 })
+        .limit(limit);
+
+      messages = docs;
+      const last = docs[docs.length - 1];
+      nextCursor = docs.length === limit && last ? last._id.toString() : null;
+    } else {
+      const effectiveCount = page * limit;
+      const docs = await Message.find({ orderId })
+        .sort({ _id: -1 })
+        .limit(effectiveCount);
+
+      const start = (page - 1) * limit;
+      messages = docs.slice(start, start + limit);
+      const last = messages[messages.length - 1];
+      nextCursor = messages.length === limit && last ? last._id.toString() : null;
+    }
+
+    return res
+      .status(200)
+      .json({ success: true, count: messages.length, data: messages, nextCursor });
   } catch (error) {
     next(error);
   }
@@ -35,7 +58,13 @@ export const getMessages = async (req: AuthRequest, res: Response, next: NextFun
 
 export const sendMessage = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { orderId, content, messageType, mediaUrl } = req.body;
+    const { orderId, content, messageType, mediaUrl, duration } = req.body as {
+      orderId: string;
+      content?: string;
+      messageType?: string;
+      mediaUrl?: string;
+      duration?: number;
+    };
 
     const order = await Order.findById(orderId);
     if (!order) {
@@ -50,13 +79,34 @@ export const sendMessage = async (req: AuthRequest, res: Response, next: NextFun
     const newMessage = await Message.create({
       orderId,
       senderId: req.user?._id,
-      messageType: messageType || 'text',
+      messageType: (messageType || 'text') as 'text' | 'image' | 'video' | 'voice',
       content,
-      mediaUrl
+      mediaUrl,
+      duration,
     });
 
-    // Note: Emitting to sockets should ideally happen here too for REST API calls
-    // But we are focusing on Socket.IO direct messaging, this is just a fallback
+    // PRD 3.2.x — When sending via REST, also broadcast over Socket.IO.
+    const clients = await io.in(orderId).fetchSockets();
+
+    const recipientId =
+      userId === order.createdBy.toString() ? order.assignedTo.toString() : order.createdBy.toString();
+
+    const recipientOnline = clients.some((s) => {
+      const user = (s as { user?: { _id?: { toString?: () => string } } }).user;
+      const onlineUserId = user?._id?.toString?.();
+      return onlineUserId === recipientId;
+    });
+
+    if (recipientOnline) {
+      newMessage.isDelivered = true;
+      newMessage.deliveredAt = new Date();
+      await newMessage.save();
+    }
+
+    io.to(orderId).emit('receive_message', newMessage);
+    if (recipientOnline) {
+      io.to(orderId).emit('message_delivered', { messageId: newMessage._id });
+    }
 
     return res.status(201).json({ success: true, data: newMessage });
   } catch (error) {

@@ -4,14 +4,18 @@ import jwt from 'jsonwebtoken';
 import User from '../models/user.model.js';
 import registerChatHandlers from './chat.socket.js';
 import { JWT_SECRET } from '../config/jwt.js';
+import { getCorsOrigin } from '../config/cors.js';
 
 export let io: Server;
 
 export const initializeSocket = (httpServer: HttpServer) => {
+  const corsOrigin = getCorsOrigin();
   io = new Server(httpServer, {
     cors: {
-      origin: '*', // You can restrict this in production
+      // Align with Express: boolean true reflects the request Origin; avoids wildcard with credentials.
+      origin: corsOrigin,
       methods: ['GET', 'POST'],
+      credentials: true,
     },
   });
 

@@ -8,6 +8,7 @@ export interface IOrder extends Document {
   metalType: "Gold" | "Silver" | "Platinum" | "Rose Gold";
   weight?: number;
   designNotes?: string;
+  completionNote?: string;
   purity?: string;
   status: "PENDING" | "ACCEPTED" | "IN_PROGRESS" | "QUALITY_CHECK" | "COMPLETED" | "RECEIVED" | "ON_HOLD" | "REVISION_REQUESTED";
   priority: "NORMAL" | "URGENT" | "EXPRESS";
@@ -35,10 +36,16 @@ export interface IOrder extends Document {
     loggedBy: mongoose.Types.ObjectId;
     loggedAt: Date;
   }>;
+  /** Order total for balance-due (PRD 4.5); sum of paid payments subtracted in balanceDue virtual. */
+  totalAmount?: number;
+  reminder24hSentAt?: Date;
+  overdueNotifiedAt?: Date;
+  idle3DayNotifiedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
   id?: string;
   orderId?: string;
+  balanceDue?: number;
 }
 
 const orderSchema = new Schema<IOrder>(
@@ -69,6 +76,7 @@ const orderSchema = new Schema<IOrder>(
 
     weight: Number,
     designNotes: String,
+    completionNote: String,
     purity: String,
 
     status: {
@@ -94,6 +102,12 @@ const orderSchema = new Schema<IOrder>(
 
     expectedDeliveryDate: Date,
     customerRef: String,
+
+    totalAmount: { type: Number, min: 0 },
+
+    reminder24hSentAt: Date,
+    overdueNotifiedAt: Date,
+    idle3DayNotifiedAt: Date,
 
     //  Images
     images: [
@@ -167,6 +181,17 @@ orderSchema.index({ status: 1 });
 // Virtuals
 orderSchema.virtual('orderId').get(function() {
   return this._id.toString();
+});
+
+orderSchema.virtual('balanceDue').get(function (this: IOrder) {
+  const total = this.totalAmount;
+  if (total == null || Number.isNaN(Number(total))) {
+    return undefined;
+  }
+  const paid = (this.payments ?? [])
+    .filter((p) => p.status === 'PAID')
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  return Math.max(0, Number(total) - paid);
 });
 
 export default mongoose.model<IOrder>("Order", orderSchema);

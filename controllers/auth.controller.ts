@@ -19,14 +19,6 @@ export const register = async (req: Request, res: Response) => {
   try {
     const { name, email, phone, password, role, ...otherDetails } = req.body;
 
-    if (role === 'ADMIN') {
-      return res.status(403).json({ success: false, message: 'Admin registration is not allowed through this endpoint', errorCode: 'GL201' });
-    }
-
-    if (!['STAFF', 'KARIGAR'].includes(role)) {
-      return res.status(400).json({ success: false, message: 'Invalid role. Only STAFF and KARIGAR are allowed.', errorCode: 'GL201' });
-    }
-
     const userExists = await User.findOne({ $or: [{ email }, { phone }] });
     if (userExists) {
       return res.status(400).json({ success: false, message: 'User with this email or phone already exists', errorCode: 'GL201' });
@@ -72,7 +64,7 @@ export const register = async (req: Request, res: Response) => {
     });
 
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message, errorCode: 'GL401' });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -91,7 +83,7 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials', errorCode: 'GL101' });
     }
 
-    const isMatch = await (user as any).matchPassword(password);
+    const isMatch = await user.matchPassword(password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid credentials', errorCode: 'GL101' });
     }
@@ -120,7 +112,7 @@ export const login = async (req: Request, res: Response) => {
     });
 
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message, errorCode: 'GL401' });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -152,7 +144,7 @@ export const getMe = async (req: AuthRequest, res: Response) => {
       }
     });
   } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message, errorCode: 'GL401' });
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
@@ -162,4 +154,36 @@ export const logout = async (req: Request, res: Response) => {
     success: true,
     message: 'Logged out successfully'
   });
+};
+
+export const registerFcmToken = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized: User information missing' });
+    }
+    const { fcmToken } = req.body as { fcmToken: string };
+    await User.findByIdAndUpdate(req.user._id, { fcmToken });
+    res.status(200).json({ success: true, message: 'FCM token registered' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
+  }
+};
+
+// PRD 4.6 — allow user to switch language anytime.
+export const updateLanguage = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?._id) {
+      return res
+        .status(401)
+        .json({ success: false, message: 'Unauthorized: User information missing' });
+    }
+
+    const { language } = req.body as { language: 'EN' | 'HI' };
+
+    await User.findByIdAndUpdate(req.user._id, { language }, { new: false });
+
+    res.status(200).json({ success: true, message: 'Language updated', data: { language } });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
+  }
 };

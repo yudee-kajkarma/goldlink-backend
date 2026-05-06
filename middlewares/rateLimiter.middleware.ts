@@ -1,6 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import dotenv from 'dotenv';
 import type { Request, Response } from 'express';
 
@@ -11,7 +11,7 @@ let redisClient: Redis | undefined;
 // Initialize Redis if REDIS_URI is available
 if (process.env.REDIS_URI) {
   redisClient = new Redis(process.env.REDIS_URI);
-  redisClient.on('error', (err) => {
+  redisClient.on('error', (err: Error) => {
     console.error('Redis connection error in rate limiter:', err);
   });
   console.log('Redis connected for rate limiting');
@@ -33,8 +33,8 @@ export const globalLimiter = rateLimit({
   handler: customHandler,
   ...(redisClient ? {
     store: new RedisStore({
-      
-      sendCommand: (...args: string[]) => redisClient!.call(...args),
+      // ioredis call signature differs from rate-limit-redis SendCommandFn; runtime is compatible.
+      sendCommand: ((...args: string[]) => redisClient!.call(...(args as [string, ...string[]]))) as import('rate-limit-redis').SendCommandFn,
       prefix: 'rl:global:', // Cache key prefix for global limiter
     }),
   } : {}),
@@ -49,8 +49,7 @@ export const authLimiter = rateLimit({
   handler: customHandler,
   ...(redisClient ? {
     store: new RedisStore({
-      
-      sendCommand: (...args: string[]) => redisClient!.call(...args),
+      sendCommand: ((...args: string[]) => redisClient!.call(...(args as [string, ...string[]]))) as import('rate-limit-redis').SendCommandFn,
       prefix: 'rl:auth:', // Cache key prefix for auth limiter
     }),
   } : {}),

@@ -93,6 +93,15 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
         throw new Error(`DEBUG: mediaUrl is required for ${messageType} messages`);
       }
 
+      if (messageType === 'voice') {
+        if (duration == null || typeof duration !== 'number' || Number.isNaN(duration)) {
+          throw new Error('DEBUG: duration is required for voice messages');
+        }
+        if (duration < 0 || duration > 120) {
+          throw new Error('DEBUG: voice note duration must be between 0 and 120 seconds');
+        }
+      }
+
       const order = await validateOrderAccess(orderId);
 
       const newMessage = await Message.create({
@@ -106,16 +115,29 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
 
       const clients = await io.in(orderId).fetchSockets();
       console.log(`DEBUG: Broadcasting message to ${clients.length} users in room ${orderId}`);
-      
-      // Broadcast to room
+
+      // Send notification to the other participant
+      const userIdStr = user._id.toString();
+      const recipientId = userIdStr === order.createdBy.toString() ? order.assignedTo : order.createdBy;
+
+      // PRD 3.2.1 — Delivered receipt:
+      // Mark delivered once at least one socket for the recipient is present in the room.
+      const recipientOnline = clients.some((s) => (s as any).user?._id?.toString() === recipientId.toString());
+      if (recipientOnline) {
+        newMessage.isDelivered = true;
+        newMessage.deliveredAt = new Date();
+        await newMessage.save();
+      }
+
+      // Broadcast to room (after delivered update so recipients can read the right state)
       io.to(orderId).emit('receive_message', newMessage);
       console.log('DEBUG: Message emitted to room');
 
       if (typeof callback === 'function') callback({ success: true, message: newMessage });
 
-      // Send notification to the other participant
-      const userIdStr = user._id.toString();
-      const recipientId = userIdStr === order.createdBy.toString() ? order.assignedTo : order.createdBy;
+      if (recipientOnline) {
+        io.to(orderId).emit('message_delivered', { messageId: newMessage._id });
+      }
       
       sendNotification(recipientId.toString(), 'New Message', content);
 
@@ -152,6 +174,7 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
       await validateOrderAccess(orderIdStr);
 
       message.isRead = true;
+      message.readAt = new Date();
       await message.save();
 
       io.to(orderIdStr).emit('message_read', { messageId });

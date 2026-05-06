@@ -1,14 +1,27 @@
 import type { Request, Response } from 'express';
 import { s3Service } from '../services/s3.service.js';
 import Order from '../models/order.model.js';
+import type { AuthRequest } from '../types/auth.js';
 
-export const uploadOrderImages = async (req: Request, res: Response) => {
+export const uploadOrderImages = async (req: AuthRequest, res: Response) => {
   try {
     const orderId = req.params.orderId as string;
     const files = req.files as Express.Multer.File[];
 
     if (!files || files.length === 0) {
       res.status(400).json({ success: false, message: 'No images provided', errorCode: 'GL_VAL_002' });
+      return;
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL301' });
+      return;
+    }
+    const userId = req.user?._id.toString();
+    const canAccess = userId === order.createdBy.toString() || userId === order.assignedTo.toString();
+    if (!canAccess) {
+      res.status(403).json({ success: false, message: 'Unauthorized access to this order', errorCode: 'GL101' });
       return;
     }
 
@@ -34,13 +47,25 @@ export const uploadOrderImages = async (req: Request, res: Response) => {
   }
 };
 
-export const uploadChatMedia = async (req: Request, res: Response) => {
+export const uploadChatMedia = async (req: AuthRequest, res: Response) => {
   try {
     const orderId = req.params.orderId as string;
     const file = req.file as Express.Multer.File;
 
     if (!file) {
       res.status(400).json({ success: false, message: 'No media file provided', errorCode: 'GL_VAL_002' });
+      return;
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL301' });
+      return;
+    }
+    const userId = req.user?._id.toString();
+    const canAccess = userId === order.createdBy.toString() || userId === order.assignedTo.toString();
+    if (!canAccess) {
+      res.status(403).json({ success: false, message: 'Unauthorized access to this order', errorCode: 'GL101' });
       return;
     }
 

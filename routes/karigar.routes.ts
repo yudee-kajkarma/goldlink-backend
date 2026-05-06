@@ -10,6 +10,8 @@ import {
   uploadCompletionMedia
 } from '../controllers/karigar.controller.js';
 import { uploadMiddleware, validateMediaSize } from '../middlewares/multer.js';
+import { validateBody } from '../middlewares/validate.middleware.js';
+import { karigarOrderStatusSchema, completeOrderSchema } from '../validators/schemas.js';
 
 const router = express.Router();
 
@@ -20,8 +22,8 @@ router.use(authorize('KARIGAR'));
 router.get('/orders', getAssignedOrders);
 router.get('/orders/:id', getOrderById);
 router.patch('/orders/:id/accept', acceptOrder);
-router.patch('/orders/:id/status', updateOrderStatus);
+router.patch('/orders/:id/status', validateBody(karigarOrderStatusSchema), updateOrderStatus);
 router.post('/orders/:id/upload-completion-media', uploadMiddleware.single('media'), validateMediaSize, uploadCompletionMedia);
-router.post('/orders/:id/complete', completeOrder);
+router.post('/orders/:id/complete', validateBody(completeOrderSchema), completeOrder);
 
 export default router;
