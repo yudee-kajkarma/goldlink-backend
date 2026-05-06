@@ -19,7 +19,7 @@ export const getUsers = async (req: Request, res: Response) => {
 
     const users = await User.find(query).select('-password');
     res.status(200).json({ success: true, count: users.length, data: users });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -29,7 +29,7 @@ export const getUserById = async (req: Request, res: Response) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL102" });
+      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL_NOT_FOUND_001" });
     }
 
     let profileDetails = null;
@@ -43,7 +43,7 @@ export const getUserById = async (req: Request, res: Response) => {
       success: true, 
       data: { ...user.toObject(), profile: profileDetails } 
     });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -53,11 +53,11 @@ export const approveUser = async (req: AuthRequest, res: Response) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL102" });
+      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL_NOT_FOUND_001" });
     }
 
     if (!req.user || !req.user._id) {
-      return res.status(401).json({ success: false, message: 'Unauthorized: User information missing', errorCode: "GL101" });
+      return res.status(401).json({ success: false, message: 'Unauthorized: User information missing', errorCode: "GL_AUTH_001" });
     }
 
     user.isApproved = true;
@@ -68,7 +68,7 @@ export const approveUser = async (req: AuthRequest, res: Response) => {
     await user.save();
 
     res.status(200).json({ success: true, message: 'User approved successfully', data: user });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -78,14 +78,14 @@ export const deactivateUser = async (req: Request, res: Response) => {
   try {
     const user = await User.findById(req.params.id);
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL102" });
+      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL_NOT_FOUND_001" });
     }
 
     user.isActive = false;
     await user.save();
 
     res.status(200).json({ success: true, message: 'User deactivated successfully', data: user });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -97,11 +97,11 @@ export const adminCreateUser = async (req: AuthRequest, res: Response) => {
 
     const userExists = await User.findOne({ $or: [{ email }, { phone }] });
     if (userExists) {
-      return res.status(400).json({ success: false, message: 'User with this email or phone already exists', errorCode: 'GL201' });
+      return res.status(400).json({ success: false, message: 'User with this email or phone already exists', errorCode: 'GL_VAL_001' });
     }
 
     if (!req.user?._id) {
-      return res.status(401).json({ success: false, message: 'Unauthorized', errorCode: 'GL101' });
+      return res.status(401).json({ success: false, message: 'Unauthorized', errorCode: 'GL_AUTH_001' });
     }
 
     const user = await User.create({
@@ -143,7 +143,7 @@ export const adminCreateUser = async (req: AuthRequest, res: Response) => {
         isActive: user.isActive,
       },
     });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -167,7 +167,7 @@ export const getOrders = async (req: Request, res: Response) => {
       .sort({ createdAt: -1 });
       
     res.status(200).json({ success: true, count: orders.length, data: orders });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -180,11 +180,11 @@ export const getOrderById = async (req: Request, res: Response) => {
       .populate('assignedTo', 'name email phone');
       
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found', errorCode: "GL301" });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: "GL_NOT_FOUND_002" });
     }
     
     res.status(200).json({ success: true, data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -197,12 +197,12 @@ export const reassignOrder = async (req: AuthRequest, res: Response) => {
     const order = await Order.findById(req.params.id);
     
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found', errorCode: "GL301" });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: "GL_NOT_FOUND_002" });
     }
 
     const karigar = await User.findOne({ _id: karigarId, role: 'KARIGAR', isActive: true });
     if (!karigar) {
-      return res.status(400).json({ success: false, message: 'Invalid or inactive Karigar selected', errorCode: "GL201" });
+      return res.status(400).json({ success: false, message: 'Invalid or inactive Karigar selected', errorCode: "GL_VAL_001" });
     }
 
     order.assignedTo = new mongoose.Types.ObjectId(karigarId);
@@ -225,7 +225,7 @@ export const reassignOrder = async (req: AuthRequest, res: Response) => {
     );
     
     res.status(200).json({ success: true, message: 'Order reassigned successfully', data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -366,7 +366,7 @@ export const getOrderAnalytics = async (req: Request, res: Response) => {
         monthlyTrend,
       },
     });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -379,7 +379,7 @@ export const exportOrders = async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid format. Use json, csv, or pdf',
-        errorCode: 'GL201',
+        errorCode: 'GL_VAL_001',
       });
     }
 
@@ -458,7 +458,7 @@ export const exportOrders = async (req: Request, res: Response) => {
       doc.moveDown(0.25);
     }
     doc.end();
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };

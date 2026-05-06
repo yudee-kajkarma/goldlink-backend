@@ -90,7 +90,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
     );
 
     res.status(201).json({ success: true, data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -103,7 +103,7 @@ export const getMyOrders = async (req: AuthRequest, res: Response) => {
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, count: orders.length, data: orders });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -121,7 +121,7 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
     }
 
     res.status(200).json({ success: true, data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -150,7 +150,7 @@ export const updateOrder = async (req: AuthRequest, res: Response) => {
     const updatedOrder = await Order.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
 
     res.status(200).json({ success: true, data: updatedOrder });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -184,7 +184,7 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
     await order.save();
 
     res.status(200).json({ success: true, data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -212,7 +212,7 @@ export const requestRevision = async (req: AuthRequest, res: Response) => {
     await order.save();
 
     res.status(200).json({ success: true, message: 'Revision requested', data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -241,7 +241,7 @@ export const addPayment = async (req: AuthRequest, res: Response) => {
     await order.save();
 
     res.status(201).json({ success: true, data: order.payments });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -255,7 +255,7 @@ export const getPayments = async (req: AuthRequest, res: Response) => {
     }
 
     res.status(200).json({ success: true, data: order.payments });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -283,7 +283,7 @@ export const addIssuedMaterial = async (req: AuthRequest, res: Response) => {
     await order.save();
 
     res.status(201).json({ success: true, data: order.materialLogs });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -325,7 +325,7 @@ export const updateReturnedMaterial = async (req: AuthRequest, res: Response) =>
     await order.save();
 
     res.status(200).json({ success: true, data: order.materialLogs[logIndex] });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };

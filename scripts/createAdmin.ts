@@ -9,10 +9,18 @@ import User from '../models/user.model.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Resolve the .env path without relying on where the script is launched from.
+// Resolve .env without assuming cwd: optional DOTENV_PATH, then cwd .env, then repo-root next to this script.
+const explicitEnv = process.env.DOTENV_PATH
+  ? path.resolve(process.env.DOTENV_PATH)
+  : undefined;
 const cwdEnvPath = path.resolve(process.cwd(), '.env');
 const scriptEnvPath = path.resolve(__dirname, '../.env');
-const envPath = fs.existsSync(cwdEnvPath) ? cwdEnvPath : scriptEnvPath;
+let envPath = scriptEnvPath;
+if (explicitEnv && fs.existsSync(explicitEnv)) {
+  envPath = explicitEnv;
+} else if (fs.existsSync(cwdEnvPath)) {
+  envPath = cwdEnvPath;
+}
 
 dotenv.config({ path: envPath });
 

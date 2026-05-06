@@ -15,13 +15,13 @@ export const uploadOrderImages = async (req: AuthRequest, res: Response) => {
 
     const order = await Order.findById(orderId);
     if (!order) {
-      res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL301' });
+      res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
       return;
     }
     const userId = req.user?._id.toString();
     const canAccess = userId === order.createdBy.toString() || userId === order.assignedTo.toString();
     if (!canAccess) {
-      res.status(403).json({ success: false, message: 'Unauthorized access to this order', errorCode: 'GL101' });
+      res.status(403).json({ success: false, message: 'Unauthorized access to this order', errorCode: 'GL_AUTH_001' });
       return;
     }
 
@@ -41,8 +41,8 @@ export const uploadOrderImages = async (req: AuthRequest, res: Response) => {
     });
 
     res.status(200).json({ success: true, urls: keys });
-  } catch (error: any) {
-    console.error(error);
+  } catch (_error: unknown) {
+    console.error(_error);
     res.status(500).json({ success: false, message: 'Failed to upload order images', errorCode: 'GL_SRV_001' });
   }
 };
@@ -59,13 +59,13 @@ export const uploadChatMedia = async (req: AuthRequest, res: Response) => {
 
     const order = await Order.findById(orderId);
     if (!order) {
-      res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL301' });
+      res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
       return;
     }
     const userId = req.user?._id.toString();
     const canAccess = userId === order.createdBy.toString() || userId === order.assignedTo.toString();
     if (!canAccess) {
-      res.status(403).json({ success: false, message: 'Unauthorized access to this order', errorCode: 'GL101' });
+      res.status(403).json({ success: false, message: 'Unauthorized access to this order', errorCode: 'GL_AUTH_001' });
       return;
     }
 
@@ -84,8 +84,8 @@ export const uploadChatMedia = async (req: AuthRequest, res: Response) => {
     // The chat message save with the key will happen separately via chat API or sockets.
     // Here we just return the uploaded file key and type so the frontend can use it.
     res.status(200).json({ success: true, mediaUrl: key, mediaType });
-  } catch (error: any) {
-    console.error(error);
+  } catch (_error: unknown) {
+    console.error(_error);
     res.status(500).json({ success: false, message: 'Failed to upload chat media', errorCode: 'GL_SRV_001' });
   }
 };
@@ -101,8 +101,8 @@ export const getSecureMediaUrl = async (req: Request, res: Response) => {
 
     const url = await s3Service.getPresignedUrl(key);
     res.status(200).json({ success: true, url });
-  } catch (error: any) {
-    console.error(error);
+  } catch (_error: unknown) {
+    console.error(_error);
     res.status(500).json({ success: false, message: 'Failed to get secure media URL', errorCode: 'GL_SRV_001' });
   }
 };

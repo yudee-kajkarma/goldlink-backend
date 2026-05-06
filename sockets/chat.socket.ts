@@ -36,8 +36,9 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
       }
 
       return order;
-    } catch (error: any) {
-      console.error(`ERROR in validateOrderAccess: ${error.message}`);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`ERROR in validateOrderAccess: ${msg}`);
       throw error;
     }
   };
@@ -66,10 +67,11 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
 
       if (typeof callback === 'function') callback({ success: true, roomSize: clients.length });
       socket.emit('chat_debug', { message: 'Joined room successfully', roomSize: clients.length, orderId });
-    } catch (error: any) {
-      console.error(`DEBUG JOIN ERROR: ${error.message}`);
-      socket.emit('chat_error', { message: error.message });
-      if (typeof callback === 'function') callback({ success: false, error: error.message });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`DEBUG JOIN ERROR: ${msg}`);
+      socket.emit('chat_error', { message: msg });
+      if (typeof callback === 'function') callback({ success: false, error: msg });
     }
   });
 
@@ -122,7 +124,10 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
 
       // PRD 3.2.1 — Delivered receipt:
       // Mark delivered once at least one socket for the recipient is present in the room.
-      const recipientOnline = clients.some((s) => (s as any).user?._id?.toString() === recipientId.toString());
+      const recipientOnline = clients.some((s) => {
+        const u = (s as { user?: { _id?: { toString?: () => string } } }).user;
+        return u?._id?.toString?.() === recipientId.toString();
+      });
       if (recipientOnline) {
         newMessage.isDelivered = true;
         newMessage.deliveredAt = new Date();
@@ -141,10 +146,11 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
       
       sendNotification(recipientId.toString(), 'New Message', content);
 
-    } catch (error: any) {
-      console.error(`DEBUG SEND ERROR: ${error.message}`);
-      socket.emit('chat_error', { message: error.message });
-      if (typeof callback === 'function') callback({ success: false, error: error.message });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`DEBUG SEND ERROR: ${msg}`);
+      socket.emit('chat_error', { message: msg });
+      if (typeof callback === 'function') callback({ success: false, error: msg });
     }
   });
 
@@ -180,8 +186,9 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
       io.to(orderIdStr).emit('message_read', { messageId });
       
       if (typeof callback === 'function') callback({ success: true });
-    } catch (error: any) {
-      if (typeof callback === 'function') callback({ success: false, error: error.message });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      if (typeof callback === 'function') callback({ success: false, error: msg });
     }
   });
 }

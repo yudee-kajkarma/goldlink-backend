@@ -12,7 +12,7 @@ export const getAssignedOrders = async (req: AuthRequest, res: Response) => {
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, count: orders.length, data: orders });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -30,7 +30,7 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
     }
 
     res.status(200).json({ success: true, data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -51,14 +51,14 @@ export const acceptOrder = async (req: AuthRequest, res: Response) => {
     order.status = 'ACCEPTED';
     order.statusLogs.push({
       status: 'ACCEPTED',
-      updatedBy: req.user?._id,
+      updatedBy: req.user!._id,
       createdAt: new Date()
     });
 
     await order.save();
 
     res.status(200).json({ success: true, message: 'Order accepted', data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -82,14 +82,14 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
     order.status = nextStatus;
     order.statusLogs.push({
       status: nextStatus,
-      updatedBy: req.user?._id,
+      updatedBy: req.user!._id,
       createdAt: new Date()
     });
 
     await order.save();
 
     res.status(200).json({ success: true, data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -135,14 +135,14 @@ export const completeOrder = async (req: AuthRequest, res: Response) => {
 
     order.statusLogs.push({
       status: 'COMPLETED',
-      updatedBy: req.user?._id,
+      updatedBy: req.user!._id,
       createdAt: new Date()
     });
 
     await order.save();
 
     res.status(200).json({ success: true, message: 'Order marked as completed', data: order });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -168,7 +168,7 @@ export const uploadCompletionMedia = async (req: AuthRequest, res: Response) => 
 
     const key = await s3Service.uploadFile(file.buffer, file.mimetype, 'orders', orderId, 'completion');
     return res.status(200).json({ success: true, mediaKey: key });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };

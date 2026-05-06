@@ -1,10 +1,6 @@
 import type { Request } from 'express';
-import type { Types } from 'mongoose';
+import type { IUser } from '../models/user.model.js';
 
 export interface AuthRequest extends Request {
-  user?: {
-    _id: Types.ObjectId;
-    role: 'ADMIN' | 'STAFF' | 'KARIGAR';
-    [key: string]: unknown;
-  };
+  user?: IUser;
 }

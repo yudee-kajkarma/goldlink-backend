@@ -9,7 +9,7 @@ export const validateBody =
       res.status(400).json({
         success: false,
         message: 'Validation failed',
-        errorCode: 'GL_VAL',
+        errorCode: 'GL_VAL_001',
         errors: parsed.error.flatten(),
       });
       return;

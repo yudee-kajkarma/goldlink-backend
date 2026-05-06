@@ -5,6 +5,7 @@ import Karigar from '../models/karigar.model.js';
 import jwt from 'jsonwebtoken';
 import type { AuthRequest } from '../types/auth.js';
 import { JWT_SECRET } from '../config/jwt.js';
+import { blacklistToken } from '../utils/tokenBlacklist.js';
 
 const generateToken = (id: string) => {
   // #region agent log
@@ -21,7 +22,7 @@ export const register = async (req: Request, res: Response) => {
 
     const userExists = await User.findOne({ $or: [{ email }, { phone }] });
     if (userExists) {
-      return res.status(400).json({ success: false, message: 'User with this email or phone already exists', errorCode: 'GL201' });
+      return res.status(400).json({ success: false, message: 'User with this email or phone already exists', errorCode: 'GL_VAL_001' });
     }
 
     // Default approval and active status to false for staff and karigar
@@ -63,7 +64,7 @@ export const register = async (req: Request, res: Response) => {
       }
     });
 
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -73,19 +74,19 @@ export const login = async (req: Request, res: Response) => {
     const { email, phone, password } = req.body;
 
     if ((!email && !phone) || !password) {
-      return res.status(400).json({ success: false, message: 'Please provide email/phone and password', errorCode: 'GL201' });
+      return res.status(400).json({ success: false, message: 'Please provide email/phone and password', errorCode: 'GL_VAL_001' });
     }
 
     const query = email ? { email } : { phone };
     const user = await User.findOne(query).select('+password');
 
     if (!user) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials', errorCode: 'GL101' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials', errorCode: 'GL_AUTH_001' });
     }
 
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials', errorCode: 'GL101' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials', errorCode: 'GL_AUTH_001' });
     }
 
     if (!user.isApproved) {
@@ -111,7 +112,7 @@ export const login = async (req: Request, res: Response) => {
       }
     });
 
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -125,7 +126,7 @@ export const getMe = async (req: AuthRequest, res: Response) => {
     const user = await User.findById(req.user._id);
     
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found', errorCode: 'GL102' });
+      return res.status(404).json({ success: false, message: 'User not found', errorCode: 'GL_NOT_FOUND_001' });
     }
 
     let profileDetails = null;
@@ -143,17 +144,35 @@ export const getMe = async (req: AuthRequest, res: Response) => {
         profile: profileDetails
       }
     });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
 
 export const logout = async (req: Request, res: Response) => {
-  // Client-side should clear the token
-  res.status(200).json({
-    success: true,
-    message: 'Logged out successfully'
-  });
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(400).json({ success: false, message: 'No token provided', errorCode: 'GL_VAL_001' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'No token provided', errorCode: 'GL_VAL_001' });
+    }
+
+    // `protect` already verified the token, but we still need its `exp` to set
+    // the denylist TTL. `decode` is fine here — no signature check required.
+    const decoded = jwt.decode(token) as { exp?: number } | null;
+    await blacklistToken(token, decoded?.exp);
+
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+  } catch (_error: unknown) {
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
+  }
 };
 
 export const registerFcmToken = async (req: AuthRequest, res: Response) => {
@@ -164,7 +183,7 @@ export const registerFcmToken = async (req: AuthRequest, res: Response) => {
     const { fcmToken } = req.body as { fcmToken: string };
     await User.findByIdAndUpdate(req.user._id, { fcmToken });
     res.status(200).json({ success: true, message: 'FCM token registered' });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
@@ -183,7 +202,7 @@ export const updateLanguage = async (req: AuthRequest, res: Response) => {
     await User.findByIdAndUpdate(req.user._id, { language }, { new: false });
 
     res.status(200).json({ success: true, message: 'Language updated', data: { language } });
-  } catch (error: any) {
+  } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
