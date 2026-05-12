@@ -1,8 +1,7 @@
 import cron from 'node-cron';
 import Order from '../models/order.model.js';
-import { sendNotification } from '../services/notification.service.js';
+import { dispatchNotifications, listActiveAdminIds } from '../services/notification.service.js';
 
-const TERMINAL = ['COMPLETED', 'RECEIVED'];
 const ACTIVE_FOR_DEADLINE = [
   'PENDING',
   'ACCEPTED',
@@ -29,18 +28,24 @@ async function run24hReminders(): Promise<void> {
     reminder24hSentAt: { $exists: false },
   });
 
+  const admins = await listActiveAdminIds();
+
   for (const order of orders) {
     const staffId = order.createdBy.toString();
     const karigarId = order.assignedTo.toString();
     const msg = `Order ${order.orderCode}: delivery in ~24h`;
-    await sendNotification(karigarId, 'Deadline reminder', msg, {
-      orderId: order._id.toString(),
+
+    console.log('[notify][cron] DEADLINE_24H recipients order=', order.orderCode, staffId, karigarId, 'admins=', admins.length);
+    await dispatchNotifications({
+      recipientIds: [karigarId, staffId, ...admins],
+      title: 'Deadline reminder',
+      body: msg,
       type: 'DEADLINE_24H',
+      entityType: 'order',
+      entityId: order._id.toString(),
+      data: { orderCode: order.orderCode },
     });
-    await sendNotification(staffId, 'Deadline reminder', msg, {
-      orderId: order._id.toString(),
-      type: 'DEADLINE_24H',
-    });
+
     order.reminder24hSentAt = new Date();
     await order.save();
   }
@@ -54,18 +59,24 @@ async function runOverdueAlerts(): Promise<void> {
     overdueNotifiedAt: { $exists: false },
   });
 
+  const admins = await listActiveAdminIds();
+
   for (const order of orders) {
     const staffId = order.createdBy.toString();
     const karigarId = order.assignedTo.toString();
     const msg = `Order ${order.orderCode} is past expected delivery`;
-    await sendNotification(karigarId, 'Order overdue', msg, {
-      orderId: order._id.toString(),
+
+    console.log('[notify][cron] ORDER_OVERDUE order=', order.orderCode);
+    await dispatchNotifications({
+      recipientIds: [karigarId, staffId, ...admins],
+      title: 'Order overdue',
+      body: msg,
       type: 'ORDER_OVERDUE',
+      entityType: 'order',
+      entityId: order._id.toString(),
+      data: { orderCode: order.orderCode },
     });
-    await sendNotification(staffId, 'Order overdue', msg, {
-      orderId: order._id.toString(),
-      type: 'ORDER_OVERDUE',
-    });
+
     order.overdueNotifiedAt = new Date();
     await order.save();
   }
@@ -79,18 +90,24 @@ async function runIdleFlags(): Promise<void> {
     idle3DayNotifiedAt: { $exists: false },
   });
 
+  const admins = await listActiveAdminIds();
+
   for (const order of orders) {
     const staffId = order.createdBy.toString();
     const karigarId = order.assignedTo.toString();
     const msg = `Order ${order.orderCode} has had no updates for 3+ days`;
-    await sendNotification(karigarId, 'Order idle', msg, {
-      orderId: order._id.toString(),
+
+    console.log('[notify][cron] ORDER_IDLE_3D order=', order.orderCode);
+    await dispatchNotifications({
+      recipientIds: [karigarId, staffId, ...admins],
+      title: 'Order idle',
+      body: msg,
       type: 'ORDER_IDLE_3D',
+      entityType: 'order',
+      entityId: order._id.toString(),
+      data: { orderCode: order.orderCode },
     });
-    await sendNotification(staffId, 'Order idle', msg, {
-      orderId: order._id.toString(),
-      type: 'ORDER_IDLE_3D',
-    });
+
     order.idle3DayNotifiedAt = new Date();
     await order.save();
   }

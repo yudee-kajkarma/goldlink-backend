@@ -22,7 +22,17 @@ export const initializeSocket = (httpServer: HttpServer) => {
   // Authentication Middleware
   io.use(async (socket, next) => {
     try {
-      let token = socket.handshake.auth?.token || socket.handshake.headers?.token || socket.handshake.query?.token;
+      const authHeader = socket.handshake.headers?.authorization;
+      const bearer =
+        typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+          ? authHeader.slice(7).trim()
+          : undefined;
+
+      let token =
+        socket.handshake.auth?.token ||
+        bearer ||
+        (typeof socket.handshake.headers?.token === 'string' ? socket.handshake.headers.token : undefined) ||
+        socket.handshake.query?.token;
       
       // Handle cases where token might be sent with quotes from Postman
       if (typeof token === 'string') {

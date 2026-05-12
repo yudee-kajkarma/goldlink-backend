@@ -2,13 +2,12 @@ import rateLimit from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { Redis } from 'ioredis';
 import dotenv from 'dotenv';
-import type { Request, Response } from 'express';
+import type { Request, Response, RequestHandler } from 'express';
 
 dotenv.config();
 
 let redisClient: Redis | undefined;
 
-// Initialize Redis if REDIS_URI is available
 if (process.env.REDIS_URI) {
   redisClient = new Redis(process.env.REDIS_URI);
   redisClient.on('error', (err: Error) => {
@@ -17,40 +16,82 @@ if (process.env.REDIS_URI) {
   console.log('Redis connected for rate limiting');
 }
 
+/** No-op when rate limiting is turned off (local/testing). */
+export const passThroughRateLimit: RequestHandler = (_req, _res, next) => next();
+
+/**
+ * Rate limits apply only when NODE_ENV is `production`, unless overridden:
+ * - DISABLE_RATE_LIMIT=true | 1 → always off
+ * - DISABLE_RATE_LIMIT=false | 0 → always on
+ */
+function shouldApplyRateLimits(): boolean {
+  const flag = process.env.DISABLE_RATE_LIMIT;
+  if (flag === 'true' || flag === '1') return false;
+  if (flag === 'false' || flag === '0') return true;
+  return process.env.NODE_ENV === 'production';
+}
+
+const limitsOn = shouldApplyRateLimits();
+
 const customHandler = (req: Request, res: Response) => {
   res.status(429).json({
     success: false,
     message: 'Too many requests. Please try again later.',
+    errorCode: 'GL_RL_001',
   });
 };
 
-// Global Rate Limiter: e.g., 100 requests per 15 minutes per IP
-export const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers (includes Retry-After)
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  handler: customHandler,
-  ...(redisClient ? {
-    store: new RedisStore({
-      // ioredis call signature differs from rate-limit-redis SendCommandFn; runtime is compatible.
-      sendCommand: ((...args: string[]) => redisClient!.call(...(args as [string, ...string[]]))) as import('rate-limit-redis').SendCommandFn,
-      prefix: 'rl:global:', // Cache key prefix for global limiter
-    }),
-  } : {}),
-});
+const redisStoreOpts = (prefix: string) =>
+  redisClient
+    ? {
+        store: new RedisStore({
+          sendCommand: ((...args: string[]) =>
+            redisClient!.call(...(args as [string, ...string[]]))) as import('rate-limit-redis').SendCommandFn,
+          prefix,
+        }),
+      }
+    : {};
 
-// Strict Rate Limiter for Auth Routes: e.g., 5 requests per 10 minutes
-export const authLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: customHandler,
-  ...(redisClient ? {
-    store: new RedisStore({
-      sendCommand: ((...args: string[]) => redisClient!.call(...(args as [string, ...string[]]))) as import('rate-limit-redis').SendCommandFn,
-      prefix: 'rl:auth:', // Cache key prefix for auth limiter
-    }),
-  } : {}),
-});
+/** Chat polling should not burn the global budget */
+export function skipChatHealthRoutes(req: Request): boolean {
+  const path = req.path || '';
+  return path.startsWith('/api/chat') || path === '/healthz' || path === '/readyz';
+}
+
+export const globalLimiter: RequestHandler = limitsOn
+  ? rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 800,
+      standardHeaders: true,
+      legacyHeaders: false,
+      handler: customHandler,
+      skip: skipChatHealthRoutes,
+      ...redisStoreOpts('rl:global:'),
+    })
+  : passThroughRateLimit;
+
+export const chatLimiter: RequestHandler = limitsOn
+  ? rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 5000,
+      standardHeaders: true,
+      legacyHeaders: false,
+      handler: customHandler,
+      ...redisStoreOpts('rl:chat:'),
+    })
+  : passThroughRateLimit;
+
+export const authLimiter: RequestHandler = limitsOn
+  ? rateLimit({
+      windowMs: 10 * 60 * 1000,
+      max: 5,
+      standardHeaders: true,
+      legacyHeaders: false,
+      handler: customHandler,
+      ...redisStoreOpts('rl:auth:'),
+    })
+  : passThroughRateLimit;
+
+if (!limitsOn) {
+  console.log('[rate-limit] Disabled (non-production or DISABLE_RATE_LIMIT). Login/API will not be throttled.');
+}

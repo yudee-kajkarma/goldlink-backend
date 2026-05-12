@@ -177,6 +177,9 @@ const orderSchema = new Schema<IOrder>(
 // orderCode is already unique, so we don't need a separate index definition here
 orderSchema.index({ assignedTo: 1 });
 orderSchema.index({ status: 1 });
+orderSchema.index({ createdAt: -1 });
+orderSchema.index({ expectedDeliveryDate: 1, status: 1 });
+orderSchema.index({ createdBy: 1 });
 
 // Virtuals
 orderSchema.virtual('orderId').get(function() {

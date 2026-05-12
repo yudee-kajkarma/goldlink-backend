@@ -1,176 +1,226 @@
 import { Server, Socket } from 'socket.io';
+import { Types } from 'mongoose';
 import Order from '../models/order.model.js';
 import { Message } from '../models/message.model.js';
-import { sendNotification } from '../services/notification.service.js';
+import { notifyNewChatMessageIfNotInRoom } from '../services/notification.service.js';
+import { normalizeChatMediaUrlForStorage } from '../services/s3.service.js';
+import { isMongoObjectId } from '../utils/objectId.js';
+import { messageToPlain } from '../utils/messagePayload.js';
+import { enrichChatMessageForClient } from '../utils/chatMessageSerialize.js';
+import {
+  emitToOrderParticipants,
+  isOrderParticipantConnected,
+} from '../services/chatDelivery.service.js';
+
+function parseClientPayload(payload: unknown): Record<string, unknown> {
+  let data: unknown = payload;
+  if (typeof payload === 'string') data = JSON.parse(payload);
+  if (Array.isArray(payload)) data = payload[0];
+  return (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+}
 
 export default function registerChatHandlers(io: Server, socket: Socket) {
-  const user = (socket as any).user;
+  const user = (socket as unknown as { user: { _id: { toString: () => string }; role: string } }).user;
 
-  // Super Logger: Logs every event received
   socket.onAny((eventName, ...args) => {
     console.log(`[SOCKET EVENT] ${eventName}:`, JSON.stringify(args));
   });
 
-  // Ping test
   socket.on('ping', () => {
     socket.emit('pong', { message: 'Connection is alive!', time: new Date() });
   });
 
-  // Helper to validate order access
-  const validateOrderAccess = async (orderId: string) => {
-    try {
-      if (!orderId) throw new Error('orderId is undefined in validateOrderAccess');
-      const order = await Order.findById(orderId.trim());
-      if (!order) {
-        console.error(`DEBUG: Order ${orderId} not found in database.`);
-        throw new Error(`Order ${orderId} not found`);
-      }
+  const validateOrderAccess = async (rawOrderId: string) => {
+    const orderId = rawOrderId.trim();
+    if (!orderId) throw new Error('orderId is required');
+    if (!isMongoObjectId(orderId)) throw new Error('Invalid order id');
 
-      const userId = user._id.toString();
-      const createdBy = order.createdBy.toString();
-      const assignedTo = order.assignedTo.toString();
-
-      if (userId !== createdBy && userId !== assignedTo) {
-        console.error(`DEBUG AUTH FAILURE: User ${userId} is not Staff(${createdBy}) or Karigar(${assignedTo})`);
-        throw new Error('Unauthorized to access this order chat');
-      }
-
-      return order;
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`ERROR in validateOrderAccess: ${msg}`);
-      throw error;
+    const order = await Order.findById(orderId);
+    if (!order) {
+      throw new Error(`Order ${orderId} not found`);
     }
+
+    if (user.role === 'ADMIN') {
+      return order;
+    }
+
+    const userId = user._id.toString();
+    const createdBy = order.createdBy.toString();
+    const assignedTo = order.assignedTo.toString();
+
+    if (userId !== createdBy && userId !== assignedTo) {
+      throw new Error('Unauthorized to access this order chat');
+    }
+
+    return order;
   };
 
-  // Join Order Room
-  socket.on('join_order', async (payload, callback) => {
+  const onJoinOrderRoom = async (payload: unknown, callback?: (result: unknown) => void) => {
     try {
-      console.log('--- join_order raw payload ---', payload);
-      // Aggressive parsing
-      let data = payload;
-      if (typeof payload === 'string') data = JSON.parse(payload);
-      if (Array.isArray(payload)) data = payload[0]; // Postman sometimes sends as array
-      
-      const { orderId } = data;
-      if (!orderId) throw new Error('DEBUG: orderId is required in payload');
+      const data = parseClientPayload(payload);
+      const orderId = data.orderId as string | undefined;
+      if (!orderId) throw new Error('orderId is required in payload');
 
-      console.log(`DEBUG: Attempting to join room ${orderId} for user ${user._id}`);
       await validateOrderAccess(orderId);
-      
-      await socket.join(orderId.toString().trim());
-      console.log(`DEBUG: User ${user._id} (${user.role}) successfully joined room: ${orderId}`);
-      
-      // Verification
-      const clients = await io.in(orderId).fetchSockets();
-      console.log(`DEBUG: Verification - users in room ${orderId}: ${clients.length}`);
+
+      const room = orderId.trim();
+      await socket.join(room);
+
+      const clients = await io.in(room).fetchSockets();
 
       if (typeof callback === 'function') callback({ success: true, roomSize: clients.length });
-      socket.emit('chat_debug', { message: 'Joined room successfully', roomSize: clients.length, orderId });
+      socket.emit('chat_debug', { message: 'Joined room successfully', roomSize: clients.length, orderId: room });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`DEBUG JOIN ERROR: ${msg}`);
       socket.emit('chat_error', { message: msg });
       if (typeof callback === 'function') callback({ success: false, error: msg });
     }
-  });
+  };
 
-  // Send Message
-  socket.on('send_message', async (payload, callback) => {
+  socket.on('join_order', onJoinOrderRoom);
+  socket.on('order:join', onJoinOrderRoom);
+
+  const onSendMessage = async (rawPayload: unknown, callback?: (result: unknown) => void) => {
     try {
-      console.log('--- send_message raw payload ---', payload);
-      // Aggressive parsing
-      let data = payload;
-      if (typeof payload === 'string') data = JSON.parse(payload);
-      if (Array.isArray(payload)) data = payload[0];
+      const data = parseClientPayload(rawPayload);
 
-      const { orderId, content, messageType = 'text', mediaUrl, duration } = data;
-      if (!orderId) throw new Error('DEBUG: orderId is required');
+      if (user.role === 'ADMIN') {
+        throw new Error('Admins can view chat via API but cannot send socket messages');
+      }
+
+      const orderId = data.orderId as string | undefined;
+      const content = data.content as string | undefined;
+      const messageType = (data.messageType as string | undefined) ?? 'text';
+      const mediaUrl = data.mediaUrl as string | undefined;
+      const duration = data.duration as number | undefined;
+
+      if (!orderId) throw new Error('orderId is required');
 
       if (messageType === 'text' && !content) {
-        throw new Error('DEBUG: content is required for text messages');
+        throw new Error('content is required for text messages');
       }
 
       if (['image', 'video', 'voice'].includes(messageType) && !mediaUrl) {
-        throw new Error(`DEBUG: mediaUrl is required for ${messageType} messages`);
+        throw new Error(`mediaUrl is required for ${messageType} messages`);
       }
 
       if (messageType === 'voice') {
         if (duration == null || typeof duration !== 'number' || Number.isNaN(duration)) {
-          throw new Error('DEBUG: duration is required for voice messages');
+          throw new Error('duration is required for voice messages');
         }
         if (duration < 0 || duration > 120) {
-          throw new Error('DEBUG: voice note duration must be between 0 and 120 seconds');
+          throw new Error('voice note duration must be between 0 and 120 seconds');
         }
       }
 
       const order = await validateOrderAccess(orderId);
+      const room = orderId.trim();
+
+      const userIdStr = user._id.toString();
+      const recipientId =
+        userIdStr === order.createdBy.toString() ? order.assignedTo.toString() : order.createdBy.toString();
 
       const newMessage = await Message.create({
-        orderId,
+        orderId: new Types.ObjectId(room),
         senderId: user._id,
+        receiverId: new Types.ObjectId(recipientId),
         messageType,
         content: content || '',
-        mediaUrl,
-        duration
+        mediaUrl: normalizeChatMediaUrlForStorage(mediaUrl),
+        duration,
       });
 
-      const clients = await io.in(orderId).fetchSockets();
-      console.log(`DEBUG: Broadcasting message to ${clients.length} users in room ${orderId}`);
+      const recipientOnline = await isOrderParticipantConnected(io, room, recipientId);
 
-      // Send notification to the other participant
-      const userIdStr = user._id.toString();
-      const recipientId = userIdStr === order.createdBy.toString() ? order.assignedTo : order.createdBy;
-
-      // PRD 3.2.1 — Delivered receipt:
-      // Mark delivered once at least one socket for the recipient is present in the room.
-      const recipientOnline = clients.some((s) => {
-        const u = (s as { user?: { _id?: { toString?: () => string } } }).user;
-        return u?._id?.toString?.() === recipientId.toString();
-      });
       if (recipientOnline) {
         newMessage.isDelivered = true;
         newMessage.deliveredAt = new Date();
         await newMessage.save();
       }
 
-      // Broadcast to room (after delivered update so recipients can read the right state)
-      io.to(orderId).emit('receive_message', newMessage);
-      console.log('DEBUG: Message emitted to room');
+      const plain = messageToPlain(newMessage);
+      const participants = {
+        createdById: order.createdBy.toString(),
+        assignedToId: order.assignedTo.toString(),
+      };
+      const messagePayload = enrichChatMessageForClient(plain, participants);
 
-      if (typeof callback === 'function') callback({ success: true, message: newMessage });
+      await emitToOrderParticipants(io, room, [
+        { event: 'receive_message', data: messagePayload },
+        { event: 'new_message', data: messagePayload },
+        { event: 'newMessage', data: messagePayload },
+      ]);
+
+      if (typeof callback === 'function') callback({ success: true, message: messagePayload });
 
       if (recipientOnline) {
-        io.to(orderId).emit('message_delivered', { messageId: newMessage._id });
+        await emitToOrderParticipants(io, room, [
+          {
+            event: 'message_delivered',
+            data: { messageId: String(newMessage._id), orderId: room, status: 'delivered' },
+          },
+        ]);
       }
-      
-      sendNotification(recipientId.toString(), 'New Message', content);
 
+      const mt = plain.messageType;
+      const preview =
+        mt === 'text'
+          ? String(content || '').slice(0, 240)
+          : mt === 'image'
+            ? '[Image]'
+            : mt === 'video'
+              ? '[Video]'
+              : '[Voice]';
+
+      const senderDisplayName =
+        typeof (socket as unknown as { user?: { name?: string } }).user?.name === 'string'
+          ? String((socket as unknown as { user?: { name?: string } }).user!.name)
+          : undefined;
+
+      void notifyNewChatMessageIfNotInRoom({
+        io,
+        recipientId,
+        orderId: room,
+        messageId: String(newMessage._id),
+        preview,
+        ...(senderDisplayName ? { senderDisplayName } : {}),
+      });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`DEBUG SEND ERROR: ${msg}`);
       socket.emit('chat_error', { message: msg });
       if (typeof callback === 'function') callback({ success: false, error: msg });
     }
-  });
+  };
 
-  // Typing indicator
-  socket.on('typing', async (payload) => {
+  socket.on('send_message', onSendMessage);
+  socket.on('chat:message', onSendMessage);
+  socket.on('chat:send_message', onSendMessage);
+
+  const onTyping = async (payload: unknown) => {
     try {
-      const { orderId } = payload;
-      if (!orderId) return;
+      const data = parseClientPayload(payload);
+      const orderId = data.orderId as string | undefined;
+      const typing = data.typing !== false;
+      if (!orderId || !typing) return;
 
       await validateOrderAccess(orderId);
-      socket.to(orderId).emit('typing', { userId: user._id });
-    } catch (error) {
-      // Silently fail for typing events
+      socket.to(orderId.trim()).emit('typing', { userId: user._id });
+    } catch {
+      // typing is best-effort
     }
-  });
+  };
 
-  // Message read
+  socket.on('typing', onTyping);
+  socket.on('chat:typing', onTyping);
+
   socket.on('message_read', async (payload, callback) => {
     try {
-      const { messageId } = payload;
+      if (user.role === 'ADMIN') {
+        throw new Error('Admins cannot mark messages as read');
+      }
+
+      const data = parseClientPayload(payload);
+      const messageId = data.messageId as string | undefined;
       if (!messageId) throw new Error('messageId is required');
 
       const message = await Message.findById(messageId);
@@ -183,8 +233,13 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
       message.readAt = new Date();
       await message.save();
 
-      io.to(orderIdStr).emit('message_read', { messageId });
-      
+      await emitToOrderParticipants(io, orderIdStr, [
+        {
+          event: 'message_read',
+          data: { messageId, orderId: orderIdStr, status: 'read' },
+        },
+      ]);
+
       if (typeof callback === 'function') callback({ success: true });
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';

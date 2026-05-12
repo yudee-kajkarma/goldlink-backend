@@ -81,9 +81,16 @@ export const uploadChatMedia = async (req: AuthRequest, res: Response) => {
 
     const key = await s3Service.uploadFile(file.buffer, file.mimetype, 'chat', orderId, subFolder);
 
+    let publicUrl: string | undefined;
+    try {
+      publicUrl = s3Service.toPublicUrl(key);
+    } catch {
+      publicUrl = undefined;
+    }
+
     // The chat message save with the key will happen separately via chat API or sockets.
     // Here we just return the uploaded file key and type so the frontend can use it.
-    res.status(200).json({ success: true, mediaUrl: key, mediaType });
+    res.status(200).json({ success: true, mediaKey: key, mediaUrl: publicUrl ?? key, mediaType });
   } catch (_error: unknown) {
     console.error(_error);
     res.status(500).json({ success: false, message: 'Failed to upload chat media', errorCode: 'GL_SRV_001' });

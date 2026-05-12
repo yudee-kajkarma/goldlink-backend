@@ -14,6 +14,7 @@ import adminRoutes from './routes/admin.routes.js';
 import staffRoutes from './routes/staff.routes.js';
 import karigarRoutes from './routes/karigar.routes.js';
 import chatRoutes from './routes/chat.routes.js';
+import notificationRoutes from './routes/notifications.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 import { initializeSocket, io } from './sockets/index.js';
 
@@ -61,9 +62,38 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/karigar', karigarRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api', uploadRoutes);
 
-app.use((err: any, _req: any, res: any, _next: any) => {
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (err !== null && typeof err === 'object') {
+    const code =
+      'code' in err && typeof (err as { code: unknown }).code === 'string'
+        ? (err as { code: string }).code
+        : '';
+    if (code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        success: false,
+        message: 'File too large',
+        errorCode: 'GL_VAL_001',
+      });
+    }
+  }
+
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes('Only image files are allowed')) {
+    return res.status(400).json({ success: false, message });
+  }
+  if (message.includes('Only video files are allowed')) {
+    return res.status(400).json({ success: false, message });
+  }
+  if (message.includes('Only audio files are allowed')) {
+    return res.status(400).json({ success: false, message });
+  }
+  if (message.includes('Invalid file type')) {
+    return res.status(400).json({ success: false, message });
+  }
+
   console.error('Unhandled server error:', err);
   res.status(500).json({
     success: false,

@@ -6,8 +6,11 @@ const objectIdString = z.string().refine((id) => Types.ObjectId.isValid(id), { m
 export const registerSchema = z
   .object({
     name: z.string().min(1),
-    email: z.string().email().optional(),
-    phone: z.string().min(1).optional(),
+    email: z.preprocess(
+      (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+      z.string().email().optional()
+    ),
+    phone: z.preprocess((v) => (typeof v === 'string' ? v.trim().replace(/\s+/g, '') : v), z.string().min(1).optional()),
     password: z.string().min(8),
     role: z.enum(['STAFF', 'KARIGAR']),
     department: z.string().optional(),
@@ -19,15 +22,30 @@ export const registerSchema = z
 
 export const loginSchema = z
   .object({
-    email: z.string().email().optional(),
-    phone: z.string().min(1).optional(),
+    email: z.preprocess(
+      (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+      z.string().email().optional()
+    ),
+    phone: z.preprocess((v) => (typeof v === 'string' ? v.trim().replace(/\s+/g, '') : v), z.string().min(1).optional()),
     password: z.string().min(1),
+    /** Send from staff/karigar/admin screens so the correct account is resolved when identities overlap in data entry. */
+    role: z.enum(['ADMIN', 'STAFF', 'KARIGAR']).optional(),
   })
   .refine((d) => Boolean(d.email) || Boolean(d.phone), { message: 'email or phone is required' });
 
-export const fcmTokenSchema = z.object({
-  fcmToken: z.string().min(1),
-});
+export const fcmTokenSchema = z
+  .object({
+    fcmToken: z.string().min(1).optional(),
+    token: z.string().min(1).optional(),
+  })
+  .refine((d) => Boolean(d.fcmToken ?? d.token), { message: 'fcmToken or token is required' });
+
+export const registerPushTokenSchema = z
+  .object({
+    token: z.string().min(1).optional(),
+    fcmToken: z.string().min(1).optional(),
+  })
+  .refine((d) => Boolean(d.token ?? d.fcmToken), { message: 'token is required (or fcmToken)' });
 
 export const updateLanguageSchema = z.object({
   language: z.preprocess(
@@ -39,8 +57,11 @@ export const updateLanguageSchema = z.object({
 export const adminCreateUserSchema = z
   .object({
     name: z.string().min(1),
-    email: z.string().email().optional(),
-    phone: z.string().min(1).optional(),
+    email: z.preprocess(
+      (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+      z.string().email().optional()
+    ),
+    phone: z.preprocess((v) => (typeof v === 'string' ? v.trim().replace(/\s+/g, '') : v), z.string().min(1).optional()),
     password: z.string().min(8),
     role: z.enum(['STAFF', 'KARIGAR']),
     department: z.string().optional(),
@@ -126,3 +147,21 @@ export const sendMessageSchema = z
 export const chatUploadBodySchema = z.object({
   orderId: objectIdString,
 });
+
+export const sendChatImageBodySchema = z
+  .object({
+    orderId: objectIdString.optional(),
+    chatId: objectIdString.optional(),
+  })
+  .refine((d) => Boolean(d.orderId ?? d.chatId), { message: 'orderId or chatId is required' });
+
+export const sendChatVideoBodySchema = sendChatImageBodySchema;
+
+export const sendChatVoiceBodySchema = z
+  .object({
+    orderId: objectIdString.optional(),
+    chatId: objectIdString.optional(),
+    /** Duration in seconds (optional; defaults to 0 if omitted). */
+    duration: z.coerce.number().nonnegative().max(3600).optional(),
+  })
+  .refine((d) => Boolean(d.orderId ?? d.chatId), { message: 'orderId or chatId is required' });

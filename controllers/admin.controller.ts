@@ -6,7 +6,9 @@ import Staff from '../models/staff.model.js';
 import Karigar from '../models/karigar.model.js';
 import type { AuthRequest } from '../types/auth.js';
 import Order from '../models/order.model.js';
-import { sendNotification } from '../services/notification.service.js';
+import { dispatchNotifications, listActiveAdminIds } from '../services/notification.service.js';
+import { buildAdminAnalytics } from '../services/orderAnalytics.service.js';
+import { normalizeEmail, normalizePhone } from '../utils/userIdentity.js';
 
 // Get all users (with optional role filtering)
 export const getUsers = async (req: Request, res: Response) => {
@@ -95,7 +97,16 @@ export const adminCreateUser = async (req: AuthRequest, res: Response) => {
   try {
     const { name, email, phone, password, role, department, designation, skillType, experienceYears } = req.body;
 
-    const userExists = await User.findOne({ $or: [{ email }, { phone }] });
+    const normEmail = normalizeEmail(email);
+    const normPhone = normalizePhone(phone);
+
+    const orClause: Array<{ email?: string; phone?: string }> = [];
+    if (normEmail) orClause.push({ email: normEmail });
+    if (normPhone) orClause.push({ phone: normPhone });
+    const dupQ = User.findOne({ $or: orClause });
+    const userExists = orClause.length
+      ? await (normEmail ? dupQ.collation({ locale: 'en', strength: 2 }) : dupQ)
+      : null;
     if (userExists) {
       return res.status(400).json({ success: false, message: 'User with this email or phone already exists', errorCode: 'GL_VAL_001' });
     }
@@ -106,8 +117,8 @@ export const adminCreateUser = async (req: AuthRequest, res: Response) => {
 
     const user = await User.create({
       name,
-      email,
-      phone,
+      email: normEmail,
+      phone: normPhone,
       password,
       role,
       isApproved: true,
@@ -217,20 +228,28 @@ export const reassignOrder = async (req: AuthRequest, res: Response) => {
 
     await order.save();
 
-    void sendNotification(
-      String(karigarId),
-      'Order reassigned to you',
-      `You have been assigned order ${order.orderCode}`,
-      { orderId: order._id.toString(), type: 'ORDER_REASSIGNED' }
-    );
-    
+    void (async () => {
+      try {
+        const admins = await listActiveAdminIds();
+        await dispatchNotifications({
+          recipientIds: [String(karigarId), ...admins],
+          title: 'New Order Assigned',
+          body: `You have been assigned order ${order.orderCode}`,
+          type: 'ORDER_REASSIGNED',
+          entityType: 'order',
+          entityId: order._id.toString(),
+          data: { orderCode: order.orderCode },
+        });
+      } catch (e) {
+        console.error('[notify] reassignOrder dispatch failed', e);
+      }
+    })();
+
     res.status(200).json({ success: true, message: 'Order reassigned successfully', data: order });
   } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
-
-const TERMINAL_STATUSES = ['COMPLETED', 'RECEIVED'] as const;
 
 function escapeCsvCell(value: unknown): string {
   if (value == null) return '';
@@ -247,129 +266,28 @@ function paidTotal(order: { payments?: Array<{ amount?: number; status?: string 
     .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 }
 
-/** PRD 3.3.4 — consolidated order analytics. */
-export const getOrderAnalytics = async (req: Request, res: Response) => {
+/**
+ * Admin dashboard analytics (real order data). Query: ?range=7d|30d|12m | ?from=&to=
+ * GET /api/admin/analytics — primary shape expected by the Admin Analytics UI.
+ */
+export const getAdminAnalytics = async (req: Request, res: Response) => {
   try {
-    const terminal = [...TERMINAL_STATUSES];
-    const activeForDue = [
-      'PENDING',
-      'ACCEPTED',
-      'IN_PROGRESS',
-      'QUALITY_CHECK',
-      'REVISION_REQUESTED',
-    ];
-
-    const [
-      totalGenerated,
-      totalCompleted,
-      avgTurnaroundAgg,
-      byKarigar,
-      byStaff,
-      byJewelleryType,
-      monthlyTrend,
-      overdueOrders,
-    ] = await Promise.all([
-      Order.countDocuments(),
-      Order.countDocuments({ status: { $in: terminal } }),
-      Order.aggregate<{ _id: null; avgMs: number | null }>([
-        { $match: { status: { $in: terminal } } },
-        {
-          $project: {
-            diffMs: { $subtract: ['$updatedAt', '$createdAt'] },
-          },
-        },
-        { $group: { _id: null, avgMs: { $avg: '$diffMs' } } },
-      ]),
-      Order.aggregate([
-        {
-          $group: {
-            _id: '$assignedTo',
-            totalGenerated: { $sum: 1 },
-            totalCompleted: {
-              $sum: { $cond: [{ $in: ['$status', terminal] }, 1, 0] },
-            },
-          },
-        },
-        { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'u' } },
-        { $unwind: '$u' },
-        {
-          $project: {
-            karigarId: '$_id',
-            name: '$u.name',
-            totalGenerated: 1,
-            totalCompleted: 1,
-          },
-        },
-      ]),
-      Order.aggregate([
-        {
-          $group: {
-            _id: '$createdBy',
-            totalGenerated: { $sum: 1 },
-            totalCompleted: {
-              $sum: { $cond: [{ $in: ['$status', terminal] }, 1, 0] },
-            },
-          },
-        },
-        { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'u' } },
-        { $unwind: '$u' },
-        {
-          $project: {
-            staffId: '$_id',
-            name: '$u.name',
-            totalGenerated: 1,
-            totalCompleted: 1,
-          },
-        },
-      ]),
-      Order.aggregate([
-        { $group: { _id: '$jewelleryType', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-      ]),
-      Order.aggregate([
-        {
-          $group: {
-            _id: { y: { $year: '$createdAt' }, m: { $month: '$createdAt' } },
-            generated: { $sum: 1 },
-            completed: {
-              $sum: { $cond: [{ $in: ['$status', terminal] }, 1, 0] },
-            },
-          },
-        },
-        { $sort: { '_id.y': 1, '_id.m': 1 } },
-      ]),
-      Order.countDocuments({
-        expectedDeliveryDate: { $lt: new Date() },
-        status: { $in: activeForDue },
-      }),
-    ]);
-
-    const avgTurnaroundMs = avgTurnaroundAgg[0]?.avgMs ?? null;
-    const avgTurnaroundDays =
-      avgTurnaroundMs != null && !Number.isNaN(avgTurnaroundMs)
-        ? avgTurnaroundMs / 86400000
-        : null;
-
-    const completionRate = totalGenerated > 0 ? totalCompleted / totalGenerated : 0;
-
-    res.status(200).json({
-      success: true,
-      data: {
-        totalGenerated,
-        totalCompleted,
-        completionRate,
-        avgTurnaroundDays,
-        byKarigar,
-        byStaff,
-        overdueOrders,
-        byJewelleryType,
-        monthlyTrend,
-      },
-    });
-  } catch (_error: unknown) {
+    const { payload, debug } = await buildAdminAnalytics(Order, req.query as Record<string, unknown>);
+    console.log('[analytics] debug', JSON.stringify(debug));
+    res.status(200).json({ success: true, data: payload });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith('Invalid')) {
+      res.status(400).json({ success: false, message: msg, errorCode: 'GL_VAL_001' });
+      return;
+    }
+    console.error('[analytics] failed', err);
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }
 };
+
+/** @deprecated Prefer GET /api/admin/analytics — same payload as getAdminAnalytics. */
+export const getOrderAnalytics = getAdminAnalytics;
 
 /** ?format=json|csv|pdf */
 export const exportOrders = async (req: Request, res: Response) => {

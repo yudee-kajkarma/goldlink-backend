@@ -2,9 +2,10 @@ import type { Request, Response } from 'express';
 import Order from '../models/order.model.js';
 import Counter from '../models/counter.model.js';
 import User from '../models/user.model.js';
+import Karigar from '../models/karigar.model.js';
 import type { AuthRequest } from '../types/auth.js';
 import { s3Service } from '../services/s3.service.js';
-import { sendNotification } from '../services/notification.service.js';
+import { dispatchNotifications, listActiveAdminIds } from '../services/notification.service.js';
 import { canTransitionOrderStatus } from '../services/orderStatusTransitions.service.js';
 
 // Helper to generate order code
@@ -21,6 +22,45 @@ const generateOrderCode = async () => {
   const sequence = String(counter?.seq ?? 1).padStart(3, '0');
   
   return `ORD-${year}-${month}-${sequence}`;
+};
+
+// List karigars available for assignment (used by Create Order screen)
+export const getKarigars = async (_req: AuthRequest, res: Response) => {
+  try {
+    const karigars = await User.find({
+      role: 'KARIGAR',
+      isActive: true,
+      isApproved: true,
+    })
+      .select('_id name phone email')
+      .sort({ name: 1 })
+      .lean();
+
+    const profiles = await Karigar.find({
+      user: { $in: karigars.map((k) => k._id) },
+    })
+      .select('user skillType experienceYears isAvailable')
+      .lean();
+
+    const profileByUser = new Map(profiles.map((p) => [String(p.user), p]));
+
+    const data = karigars.map((k) => {
+      const profile = profileByUser.get(String(k._id));
+      return {
+        _id: k._id,
+        name: k.name,
+        phone: k.phone,
+        email: k.email,
+        skillType: profile?.skillType,
+        experienceYears: profile?.experienceYears,
+        isAvailable: profile?.isAvailable ?? true,
+      };
+    });
+
+    res.status(200).json({ success: true, count: data.length, data });
+  } catch (_error: unknown) {
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
+  }
 };
 
 // Create a new order
@@ -79,12 +119,22 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
     order.images = keys.map(key => ({ url: key, type: 'INITIAL' as const }));
     await order.save();
 
-    void sendNotification(
-      String(order.assignedTo),
-      'New order assigned',
-      `You have been assigned order ${order.orderCode}`,
-      { orderId: order._id.toString(), type: 'ORDER_ASSIGNED' }
-    );
+    void (async () => {
+      try {
+        const admins = await listActiveAdminIds();
+        await dispatchNotifications({
+          recipientIds: [String(order.assignedTo), ...admins],
+          title: 'New Order Assigned',
+          body: `You have a new assignment: ${order.orderCode}`,
+          type: 'ORDER_CREATED',
+          entityType: 'order',
+          entityId: order._id.toString(),
+          data: { orderCode: order.orderCode },
+        });
+      } catch (e) {
+        console.error('[notify] createOrder dispatch failed', e);
+      }
+    })();
 
     res.status(201).json({ success: true, data: order });
   } catch (_error: unknown) {
@@ -174,6 +224,46 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 
     await order.save();
 
+    void (async () => {
+      try {
+        const admins = await listActiveAdminIds();
+        const recipients =
+          nextStatus === 'RECEIVED'
+            ? admins
+            : [String(order.assignedTo), ...admins];
+
+        let title = 'Order updated';
+        let body = `Order ${order.orderCode}: status changed to ${nextStatus}`;
+        let typeKey = `ORDER_${nextStatus}`;
+
+        if (nextStatus === 'REVISION_REQUESTED') {
+          title = 'Revision requested';
+          body = `${order.orderCode}: the staff requested a revision`;
+          typeKey = 'ORDER_REVISION_REQUESTED';
+        } else if (nextStatus === 'ON_HOLD') {
+          title = 'Order on hold';
+          body = `${order.orderCode} was put on hold by staff`;
+          typeKey = 'ORDER_ON_HOLD';
+        } else if (nextStatus === 'RECEIVED') {
+          title = 'Order received';
+          body = `${order.orderCode} was marked received by staff`;
+          typeKey = 'ORDER_RECEIVED';
+        }
+
+        await dispatchNotifications({
+          recipientIds: recipients,
+          title,
+          body,
+          type: typeKey,
+          entityType: 'order',
+          entityId: order._id.toString(),
+          data: { orderCode: order.orderCode, status: nextStatus },
+        });
+      } catch (e) {
+        console.error('[notify] staff status update dispatch failed', e);
+      }
+    })();
+
     res.status(200).json({ success: true, data: order });
   } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
@@ -201,6 +291,23 @@ export const requestRevision = async (req: AuthRequest, res: Response) => {
     });
 
     await order.save();
+
+    void (async () => {
+      try {
+        const admins = await listActiveAdminIds();
+        await dispatchNotifications({
+          recipientIds: [String(order.assignedTo), ...admins],
+          title: 'Revision requested',
+          body: `${order.orderCode}: the staff requested a revision`,
+          type: 'ORDER_REVISION_REQUESTED',
+          entityType: 'order',
+          entityId: order._id.toString(),
+          data: { orderCode: order.orderCode, status: 'REVISION_REQUESTED' },
+        });
+      } catch (e) {
+        console.error('[notify] requestRevision dispatch failed', e);
+      }
+    })();
 
     res.status(200).json({ success: true, message: 'Revision requested', data: order });
   } catch (_error: unknown) {

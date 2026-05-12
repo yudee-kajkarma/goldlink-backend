@@ -12,7 +12,9 @@ export interface IUser extends mongoose.Document {
   approvedAt?: Date;
   isActive: boolean;
   lastLogin?: Date;
+  /** Legacy single-token field kept in sync with the latest device token. */
   fcmToken?: string;
+  fcmTokens?: string[];
   language: "EN" | "HI";
   matchPassword: (enteredPassword: string) => Promise<boolean>;
 }
@@ -20,8 +22,8 @@ export interface IUser extends mongoose.Document {
 const userSchema = new mongoose.Schema<IUser>(
   {
     name: { type: String, required: true },
-    email: { type: String, unique: true, sparse: true },
-    phone: { type: String, unique: true, sparse: true },
+    email: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
+    phone: { type: String, unique: true, sparse: true, trim: true },
     password: { type: String, required: true, select: false },
     role: {
       type: String,
@@ -43,6 +45,7 @@ const userSchema = new mongoose.Schema<IUser>(
     },
     lastLogin: Date,
     fcmToken: String,
+    fcmTokens: { type: [String], default: [] },
     language: {
       type: String,
       enum: ["EN", "HI"],
@@ -56,8 +59,10 @@ userSchema.index({ role: 1, isApproved: 1 });
 
 // Prevent "ghost users" (documents with neither email nor phone).
 userSchema.pre('validate', function (next) {
-  const hasEmail = typeof this.email === 'string' && this.email.trim().length > 0;
-  const hasPhone = typeof this.phone === 'string' && this.phone.trim().length > 0;
+  if (typeof this.email === 'string') this.email = this.email.trim().toLowerCase();
+  if (typeof this.phone === 'string') this.phone = this.phone.trim().replace(/\s+/g, '');
+  const hasEmail = typeof this.email === 'string' && this.email.length > 0;
+  const hasPhone = typeof this.phone === 'string' && this.phone.length > 0;
   if (!hasEmail && !hasPhone) {
     return next(new Error('Either email or phone is required'));
   }

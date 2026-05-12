@@ -10,6 +10,7 @@ import {
   reassignOrder,
   exportOrders,
   getOrderAnalytics,
+  getAdminAnalytics,
 } from '../controllers/admin.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { authorize } from '../middlewares/role.middleware.js';
@@ -27,6 +28,7 @@ router.get('/users/:id', getUserById);
 router.patch('/users/:id/approve', approveUser);
 router.patch('/users/:id/deactivate', deactivateUser);
 
+router.get('/analytics', getAdminAnalytics);
 router.get('/analytics/orders', getOrderAnalytics);
 
 router.get('/orders', getOrders);

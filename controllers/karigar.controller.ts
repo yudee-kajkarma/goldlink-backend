@@ -3,6 +3,7 @@ import Order from '../models/order.model.js';
 import type { AuthRequest } from '../types/auth.js';
 import { s3Service } from '../services/s3.service.js';
 import { canTransitionOrderStatus } from '../services/orderStatusTransitions.service.js';
+import { dispatchNotifications, listActiveAdminIds } from '../services/notification.service.js';
 
 // Get assigned orders
 export const getAssignedOrders = async (req: AuthRequest, res: Response) => {
@@ -57,6 +58,23 @@ export const acceptOrder = async (req: AuthRequest, res: Response) => {
 
     await order.save();
 
+    void (async () => {
+      try {
+        const admins = await listActiveAdminIds();
+        await dispatchNotifications({
+          recipientIds: [String(order.createdBy), ...admins],
+          title: 'Order accepted',
+          body: `${order.orderCode} was accepted by the karigar`,
+          type: 'ORDER_ACCEPTED',
+          entityType: 'order',
+          entityId: order._id.toString(),
+          data: { orderCode: order.orderCode },
+        });
+      } catch (e) {
+        console.error('[notify] acceptOrder dispatch failed', e);
+      }
+    })();
+
     res.status(200).json({ success: true, message: 'Order accepted', data: order });
   } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
@@ -87,6 +105,25 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
     });
 
     await order.save();
+
+    void (async () => {
+      try {
+        if (nextStatus === 'ON_HOLD') {
+          const admins = await listActiveAdminIds();
+          await dispatchNotifications({
+            recipientIds: [String(order.createdBy), ...admins],
+            title: 'Order on hold',
+            body: `${order.orderCode} was put on hold by the karigar`,
+            type: 'ORDER_ON_HOLD',
+            entityType: 'order',
+            entityId: order._id.toString(),
+            data: { orderCode: order.orderCode, status: nextStatus },
+          });
+        }
+      } catch (e) {
+        console.error('[notify] karigar status update dispatch failed', e);
+      }
+    })();
 
     res.status(200).json({ success: true, data: order });
   } catch (_error: unknown) {
@@ -137,6 +174,23 @@ export const completeOrder = async (req: AuthRequest, res: Response) => {
     });
 
     await order.save();
+
+    void (async () => {
+      try {
+        const admins = await listActiveAdminIds();
+        await dispatchNotifications({
+          recipientIds: [String(order.createdBy), ...admins],
+          title: 'Order completed',
+          body: `${order.orderCode} was marked completed by the karigar`,
+          type: 'ORDER_COMPLETED',
+          entityType: 'order',
+          entityId: order._id.toString(),
+          data: { orderCode: order.orderCode },
+        });
+      } catch (e) {
+        console.error('[notify] completeOrder dispatch failed', e);
+      }
+    })();
 
     res.status(200).json({ success: true, message: 'Order marked as completed', data: order });
   } catch (_error: unknown) {

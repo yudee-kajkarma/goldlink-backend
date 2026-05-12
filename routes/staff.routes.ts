@@ -20,13 +20,17 @@ import {
   addPayment,
   getPayments,
   addIssuedMaterial,
-  updateReturnedMaterial
+  updateReturnedMaterial,
+  getKarigars,
 } from '../controllers/staff.controller.js';
 
 const router = express.Router();
 
 router.use(protect);
 router.use(authorize('STAFF'));
+
+// Karigar lookup (for assignment dropdowns)
+router.get('/karigars', getKarigars);
 
 // Order routes
 router.post(
