@@ -7,6 +7,8 @@ import { normalizeChatMediaUrlForStorage } from '../services/s3.service.js';
 import { isMongoObjectId } from '../utils/objectId.js';
 import { messageToPlain } from '../utils/messagePayload.js';
 import { enrichChatMessageForClient } from '../utils/chatMessageSerialize.js';
+import { chatSenderFromUserLike } from '../utils/chatSender.util.js';
+import type { IUser } from '../models/user.model.js';
 import {
   emitToOrderParticipants,
   isOrderParticipantConnected,
@@ -20,7 +22,7 @@ function parseClientPayload(payload: unknown): Record<string, unknown> {
 }
 
 export default function registerChatHandlers(io: Server, socket: Socket) {
-  const user = (socket as unknown as { user: { _id: { toString: () => string }; role: string } }).user;
+  const user = (socket as unknown as { user: IUser }).user;
 
   socket.onAny((eventName, ...args) => {
     console.log(`[SOCKET EVENT] ${eventName}:`, JSON.stringify(args));
@@ -143,7 +145,9 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
         createdById: order.createdBy.toString(),
         assignedToId: order.assignedTo.toString(),
       };
-      const messagePayload = enrichChatMessageForClient(plain, participants);
+      const messagePayload = enrichChatMessageForClient(plain, participants, {
+        senderOverride: chatSenderFromUserLike(user),
+      });
 
       await emitToOrderParticipants(io, room, [
         { event: 'receive_message', data: messagePayload },

@@ -3,11 +3,19 @@ import { Types } from 'mongoose';
 import { Message, type IMessage } from '../models/message.model.js';
 import Order from '../models/order.model.js';
 import type { AuthRequest } from '../types/auth.js';
+import type { IUser } from '../models/user.model.js';
 import { s3Service, normalizeChatMediaUrlForStorage } from '../services/s3.service.js';
 import { io } from '../sockets/index.js';
 import { isMongoObjectId } from '../utils/objectId.js';
 import { messageToPlain } from '../utils/messagePayload.js';
 import { enrichChatMessageForClient } from '../utils/chatMessageSerialize.js';
+import {
+  CHAT_SENDER_POPULATE_SELECT,
+  chatSenderDeleted,
+  chatSenderFromUserDoc,
+  chatSenderFromUserLike,
+  type ChatSenderPublic,
+} from '../utils/chatSender.util.js';
 import { emitToOrderParticipants, isOrderParticipantConnected } from '../services/chatDelivery.service.js';
 import User from '../models/user.model.js';
 import { notifyNewChatMessageIfNotInRoom } from '../services/notification.service.js';
@@ -33,27 +41,54 @@ function userMayAccessOrderChat(
   return userId === createdBy || userId === assignedTo;
 }
 
+const MESSAGE_SENDER_POPULATE = {
+  path: 'senderId',
+  select: CHAT_SENDER_POPULATE_SELECT,
+} as const;
+
+async function resolveSenderOverrideForEmit(
+  newMessage: IMessage,
+  senderSource?: IUser | null
+): Promise<{ senderOverride: ChatSenderPublic }> {
+  if (senderSource) {
+    return { senderOverride: chatSenderFromUserLike(senderSource) };
+  }
+  const u = await User.findById(newMessage.senderId).select(CHAT_SENDER_POPULATE_SELECT).lean();
+  const senderOverride =
+    chatSenderFromUserDoc((u ?? null) as Record<string, unknown> | null) ?? chatSenderDeleted();
+  return { senderOverride };
+}
+
 async function fanOutNewOrderChatMessage(
   newMessage: IMessage,
   threadId: string,
   recipientId: string,
-  participants: { createdById: string; assignedToId: string }
-): Promise<void> {
+  participants: { createdById: string; assignedToId: string },
+  senderSource?: IUser | null
+): Promise<Record<string, unknown>> {
   const oid = threadId.trim();
+  let recipientOnline = false;
 
   try {
     if (io) {
-      const recipientOnline = await isOrderParticipantConnected(io, oid, recipientId);
+      recipientOnline = await isOrderParticipantConnected(io, oid, recipientId);
 
       if (recipientOnline) {
         newMessage.isDelivered = true;
         newMessage.deliveredAt = new Date();
         await newMessage.save();
       }
+    }
+  } catch (socketErr) {
+    console.error('chat: realtime fan-out failed', socketErr);
+  }
 
-      const plainForEmit = messageToPlain(newMessage);
-      const payload = enrichChatMessageForClient(plainForEmit, participants);
+  const plainForEmit = messageToPlain(newMessage);
+  const { senderOverride } = await resolveSenderOverrideForEmit(newMessage, senderSource);
+  const payload = enrichChatMessageForClient(plainForEmit, participants, { senderOverride });
 
+  try {
+    if (io) {
       await emitToOrderParticipants(io, oid, [
         { event: 'receive_message', data: payload },
         { event: 'new_message', data: payload },
@@ -70,7 +105,7 @@ async function fanOutNewOrderChatMessage(
       }
     }
   } catch (socketErr) {
-    console.error('chat: realtime fan-out failed', socketErr);
+    console.error('chat: realtime emit failed', socketErr);
   }
 
   try {
@@ -96,6 +131,8 @@ async function fanOutNewOrderChatMessage(
   } catch (notifyErr) {
     console.error('chat: notification dispatch failed', notifyErr);
   }
+
+  return payload;
 }
 
 /** Paginated list of orders the caller may open as chat threads (fixes mistaken GET /api/chat/rooms). */
@@ -194,6 +231,7 @@ export const getMessages = async (req: AuthRequest, res: Response, next: NextFun
       const docs = await Message.find({ orderId: orderOid, _id: { $lt: cursor } })
         .sort({ _id: -1 })
         .limit(limit)
+        .populate(MESSAGE_SENDER_POPULATE)
         .lean();
 
       const last = docs[docs.length - 1];
@@ -205,6 +243,7 @@ export const getMessages = async (req: AuthRequest, res: Response, next: NextFun
       const docs = await Message.find({ orderId: orderOid })
         .sort({ _id: -1 })
         .limit(effectiveCount)
+        .populate(MESSAGE_SENDER_POPULATE)
         .lean();
 
       const start = (page - 1) * limit;
@@ -281,9 +320,13 @@ export const sendMessage = async (req: AuthRequest, res: Response, next: NextFun
       assignedToId: idKey(order.assignedTo),
     };
 
-    await fanOutNewOrderChatMessage(newMessage, orderId.trim(), recipientId, participants);
-
-    const responsePayload = enrichChatMessageForClient(messageToPlain(newMessage), participants);
+    const responsePayload = await fanOutNewOrderChatMessage(
+      newMessage,
+      orderId.trim(),
+      recipientId,
+      participants,
+      req.user
+    );
 
     return res.status(201).json({ success: true, data: responsePayload });
   } catch (error) {
@@ -360,9 +403,13 @@ export const sendChatImage = async (req: AuthRequest, res: Response, next: NextF
       assignedToId: idKey(order.assignedTo),
     };
 
-    await fanOutNewOrderChatMessage(newMessage, threadId, recipientId, participants);
-
-    const responsePayload = enrichChatMessageForClient(messageToPlain(newMessage), participants);
+    const responsePayload = await fanOutNewOrderChatMessage(
+      newMessage,
+      threadId,
+      recipientId,
+      participants,
+      req.user
+    );
     return res.status(201).json({ success: true, data: responsePayload });
   } catch (error) {
     next(error);
@@ -438,9 +485,13 @@ export const sendChatVideo = async (req: AuthRequest, res: Response, next: NextF
       assignedToId: idKey(order.assignedTo),
     };
 
-    await fanOutNewOrderChatMessage(newMessage, threadId, recipientId, participants);
-
-    const responsePayload = enrichChatMessageForClient(messageToPlain(newMessage), participants);
+    const responsePayload = await fanOutNewOrderChatMessage(
+      newMessage,
+      threadId,
+      recipientId,
+      participants,
+      req.user
+    );
     return res.status(201).json({ success: true, data: responsePayload });
   } catch (error) {
     next(error);
@@ -527,9 +578,13 @@ export const sendChatVoice = async (req: AuthRequest, res: Response, next: NextF
       assignedToId: idKey(order.assignedTo),
     };
 
-    await fanOutNewOrderChatMessage(newMessage, threadId, recipientId, participants);
-
-    const responsePayload = enrichChatMessageForClient(messageToPlain(newMessage), participants);
+    const responsePayload = await fanOutNewOrderChatMessage(
+      newMessage,
+      threadId,
+      recipientId,
+      participants,
+      req.user
+    );
     return res.status(201).json({ success: true, data: responsePayload });
   } catch (error) {
     next(error);

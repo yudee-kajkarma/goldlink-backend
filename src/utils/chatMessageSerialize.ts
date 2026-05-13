@@ -1,14 +1,58 @@
 import { resolveStoredChatMediaUrl } from '../services/s3.service.js';
+import {
+  chatSenderDeleted,
+  chatSenderFromUserDoc,
+  type ChatSenderPublic,
+} from './chatSender.util.js';
 
 export type ChatOrderParticipants = { createdById: string; assignedToId: string };
+
+export type EnrichChatMessageOptions = {
+  /** When the emitter knows the sender (e.g. socket.session user), avoids ambiguous payloads without populate. */
+  senderOverride?: ChatSenderPublic | null;
+};
+
+function extractSenderIdString(plain: Record<string, unknown>): string {
+  const sid = plain.senderId;
+  if (sid != null && typeof sid === 'object' && '_id' in sid) {
+    const inner = (sid as { _id: unknown })._id;
+    return inner != null ? String(inner) : '';
+  }
+  return sid != null ? String(sid) : '';
+}
+
+function resolveSenderForPayload(
+  plain: Record<string, unknown>,
+  options?: EnrichChatMessageOptions
+): ChatSenderPublic {
+  if (options?.senderOverride) return options.senderOverride;
+
+  const sid = plain.senderId;
+  if (sid != null && typeof sid === 'object' && '_id' in sid) {
+    const fromDoc = chatSenderFromUserDoc(sid as Record<string, unknown>);
+    return fromDoc ?? chatSenderDeleted();
+  }
+
+  if (sid === null || sid === undefined) {
+    return chatSenderDeleted();
+  }
+
+  return {
+    _id: extractSenderIdString(plain) || null,
+    fullName: 'Unknown User',
+    role: 'unknown',
+  };
+}
 
 /** Normalizes REST + socket payloads so mobile/web can map one shape (`text`, `status`, `receiverId`, …). */
 export function enrichChatMessageForClient(
   plain: Record<string, unknown>,
-  participants: ChatOrderParticipants
+  participants: ChatOrderParticipants,
+  options?: EnrichChatMessageOptions
 ): Record<string, unknown> {
   const id = String(plain._id ?? plain.id ?? '');
-  const senderId = String(plain.senderId ?? '');
+  const senderId = extractSenderIdString(plain);
+  const sender = resolveSenderForPayload(plain, options);
   const { createdById, assignedToId } = participants;
   const receiverIdFromDoc = plain.receiverId != null ? String(plain.receiverId) : '';
   const receiverIdComputed = senderId === createdById ? assignedToId : createdById;
@@ -32,6 +76,7 @@ export function enrichChatMessageForClient(
     chatId: orderIdStr,
     orderId: orderIdStr,
     senderId,
+    sender,
     receiverId,
     type: messageType,
     text: content,
