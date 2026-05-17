@@ -1,5 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
+export type MessageDeliveryStatus = 'SENT' | 'DELIVERED' | 'READ';
+
 export interface IMessage extends Document {
   orderId: mongoose.Types.ObjectId;
   senderId: mongoose.Types.ObjectId;
@@ -17,6 +19,8 @@ export interface IMessage extends Document {
   deliveredAt?: Date;
   isRead: boolean;
   readAt?: Date;
+  /** Delivery / read pipeline for clients that key off a single enum. */
+  status?: MessageDeliveryStatus;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -42,8 +46,20 @@ const MessageSchema = new Schema<IMessage>(
     deliveredAt: { type: Date },
     isRead: { type: Boolean, default: false },
     readAt: { type: Date },
+    status: {
+      type: String,
+      enum: ['SENT', 'DELIVERED', 'READ'],
+      default: 'SENT',
+    },
   },
   { timestamps: true }
 );
+
+MessageSchema.index({ orderId: 1, createdAt: -1 });
+MessageSchema.index({ orderId: 1, senderId: 1 });
+MessageSchema.index({ orderId: 1, receiverId: 1 });
+MessageSchema.index({ receiverId: 1, isRead: 1, orderId: 1 });
+MessageSchema.index({ receiverId: 1, readAt: 1 });
+MessageSchema.index({ senderId: 1, createdAt: -1 });
 
 export const Message = mongoose.model<IMessage>('Message', MessageSchema);

@@ -1,4 +1,5 @@
 import mongoose, { Document, Schema } from 'mongoose';
+import { normalizeOrderPriority } from '../utils/orderPriority.util.js';
 
 export interface IOrder extends Document {
   orderCode: string;
@@ -11,7 +12,8 @@ export interface IOrder extends Document {
   completionNote?: string;
   purity?: string;
   status: "PENDING" | "ACCEPTED" | "IN_PROGRESS" | "QUALITY_CHECK" | "COMPLETED" | "RECEIVED" | "ON_HOLD" | "REVISION_REQUESTED";
-  priority: "NORMAL" | "URGENT" | "EXPRESS";
+  /** Serialized JSON uses canonical NORMAL | URGENT | EXPRESS; legacy HIGH/LOW may exist in DB. */
+  priority: "NORMAL" | "URGENT" | "EXPRESS" | "HIGH" | "LOW";
   expectedDeliveryDate?: Date;
   customerRef?: string;
   images: Array<{
@@ -96,7 +98,7 @@ const orderSchema = new Schema<IOrder>(
 
     priority: {
       type: String,
-      enum: ["NORMAL", "URGENT", "EXPRESS"],
+      enum: ["NORMAL", "URGENT", "EXPRESS", "HIGH", "LOW"],
       default: "NORMAL",
     },
 
@@ -168,8 +170,24 @@ const orderSchema = new Schema<IOrder>(
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true }
+    toJSON: {
+      virtuals: true,
+      transform: (_doc, ret: Record<string, unknown>) => {
+        if (typeof ret.priority === 'string') {
+          ret.priority = normalizeOrderPriority(ret.priority);
+        }
+        return ret;
+      },
+    },
+    toObject: {
+      virtuals: true,
+      transform: (_doc, ret: Record<string, unknown>) => {
+        if (typeof ret.priority === 'string') {
+          ret.priority = normalizeOrderPriority(ret.priority);
+        }
+        return ret;
+      },
+    },
   }
 );
 
@@ -180,6 +198,7 @@ orderSchema.index({ status: 1 });
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ expectedDeliveryDate: 1, status: 1 });
 orderSchema.index({ createdBy: 1 });
+orderSchema.index({ customerRef: 1 });
 
 // Virtuals
 orderSchema.virtual('orderId').get(function() {

@@ -9,6 +9,13 @@ import { io } from '../sockets/index.js';
 import { isMongoObjectId } from '../utils/objectId.js';
 import { messageToPlain } from '../utils/messagePayload.js';
 import { enrichChatMessageForClient } from '../utils/chatMessageSerialize.js';
+import { isReservedChatPathSegment } from '../constants/chat.constants.js';
+import { MAX_VOICE_DURATION_SECONDS } from '../constants/media.constants.js';
+import {
+  aggregateChatRooms,
+  countUnreadChatMessagesForUser,
+  getChatOrderRoomDetail as fetchChatOrderRoomDetail,
+} from '../services/chatRooms.service.js';
 import {
   CHAT_SENDER_POPULATE_SELECT,
   chatSenderDeleted,
@@ -76,6 +83,7 @@ async function fanOutNewOrderChatMessage(
       if (recipientOnline) {
         newMessage.isDelivered = true;
         newMessage.deliveredAt = new Date();
+        newMessage.status = 'DELIVERED';
         await newMessage.save();
       }
     }
@@ -135,42 +143,126 @@ async function fanOutNewOrderChatMessage(
   return payload;
 }
 
-/** Paginated list of orders the caller may open as chat threads (fixes mistaken GET /api/chat/rooms). */
+/** Chat inbox: rooms with last message, unread counts, and counterparty (aggregation, RBAC-safe). */
 export const listChatRooms = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const role = req.user?.role;
-
-    let filter: Record<string, unknown> = {};
-    if (role === 'ADMIN') {
-      filter = {};
-    } else if (role === 'STAFF') {
-      filter = { createdBy: req.user!._id };
-    } else if (role === 'KARIGAR') {
-      filter = { assignedTo: req.user!._id };
-    } else {
+    const userId = req.user?._id?.toString();
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
+    }
+    if (role !== 'ADMIN' && role !== 'STAFF' && role !== 'KARIGAR') {
       return res.status(403).json({
         success: false,
         message: 'Chat is available to staff, karigar, and admin only',
+        errorCode: 'GL_AUTH_001',
       });
     }
 
     const limitRaw = Number.parseInt(String(req.query.limit ?? '50'), 10);
     const limit = Math.min(200, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 50));
 
-    const orders = await Order.find(filter)
-      .sort({ updatedAt: -1 })
-      .limit(limit)
-      .populate('createdBy', 'name role phone email')
-      .populate('assignedTo', 'name role phone email')
-      .select('orderCode createdBy assignedTo status updatedAt createdAt')
-      .lean();
+    const data = await aggregateChatRooms(userId, role, limit);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
 
-    return res.status(200).json({
-      success: true,
-      count: orders.length,
-      data: orders,
-      hint: 'Load messages with GET /api/chat/messages/:chatId (MongoDB order _id).',
-    });
+export const getChatUnreadCount = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const uid = req.user?._id?.toString();
+    if (!uid) {
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
+    }
+    const role = req.user?.role;
+    if (role !== 'ADMIN' && role !== 'STAFF' && role !== 'KARIGAR') {
+      return res.status(403).json({
+        success: false,
+        message: 'Chat is available to staff, karigar, and admin only',
+        errorCode: 'GL_AUTH_001',
+      });
+    }
+    const count = await countUnreadChatMessagesForUser(uid);
+    return res.status(200).json({ success: true, data: { count } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getChatOrderRoomDetail = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const orderIdRaw = req.params.orderId;
+    const orderId = Array.isArray(orderIdRaw) ? orderIdRaw[0] : orderIdRaw;
+    if (!orderId || typeof orderId !== 'string' || !isMongoObjectId(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order id',
+        errorCode: 'GL_VAL_001',
+      });
+    }
+    const data = await fetchChatOrderRoomDetail(orderId, req.user?._id?.toString(), req.user?.role);
+    if (!data) {
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
+    }
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const markChatRead = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { orderId } = req.body as { orderId: string };
+    const userId = req.user?._id?.toString();
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
+    }
+
+    if (!userMayAccessOrderChat(order, userId, req.user?.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access to this chat',
+        errorCode: 'GL_AUTH_001',
+      });
+    }
+
+    const readerOid = req.user!._id;
+    const orderOid = new Types.ObjectId(orderId);
+    const filter = {
+      orderId: orderOid,
+      senderId: { $ne: readerOid },
+      receiverId: readerOid,
+      isRead: { $ne: true },
+      status: { $ne: 'READ' },
+    };
+
+    const toMark = await Message.find(filter).select('_id').lean();
+    const messageIds = toMark.map((m) => String(m._id));
+
+    if (messageIds.length > 0) {
+      const now = new Date();
+      await Message.updateMany(
+        { _id: { $in: toMark.map((m) => m._id) } },
+        { $set: { isRead: true, readAt: now, status: 'READ' } }
+      );
+
+      const payload = { orderId: orderId.trim(), readerId: userId, messageIds };
+      try {
+        if (io) {
+          await emitToOrderParticipants(io, orderId.trim(), [{ event: 'messages-read', data: payload }]);
+        }
+      } catch (socketErr) {
+        console.error('chat: messages-read emit failed', socketErr);
+      }
+    }
+
+    return res.status(200).json({ success: true, data: { updatedCount: messageIds.length } });
   } catch (error) {
     next(error);
   }
@@ -188,33 +280,39 @@ export const getMessages = async (req: AuthRequest, res: Response, next: NextFun
       return res.status(400).json({
         success: false,
         message: 'order id is required',
+        errorCode: 'GL_VAL_001',
       });
     }
 
-    const reserved = new Set(['rooms', 'messages', 'upload', 'send-image', 'send-video', 'send-voice']);
-    if (reserved.has(orderId.toLowerCase())) {
+    if (isReservedChatPathSegment(orderId)) {
       return res.status(400).json({
         success: false,
+        errorCode: 'GL_VAL_001',
         message:
-          'Invalid chat URL. Use GET /api/chat/rooms for the inbox list, or GET /api/chat/messages/:chatId with the order MongoDB _id.',
+          'Invalid chat path. Use GET /api/chat/rooms, GET /api/chat/messages/:chatId, GET /api/chat/unread, or POST /api/chat/read as documented.',
       });
     }
 
     if (!isMongoObjectId(orderId)) {
       return res.status(400).json({
         success: false,
+        errorCode: 'GL_VAL_001',
         message: 'Invalid order id. Use the order MongoDB _id (24 hex chars), e.g. GET /api/chat/messages/:chatId.',
       });
     }
 
     const order = await Order.findById(orderId);
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
     const userId = req.user?._id?.toString();
     if (!userMayAccessOrderChat(order, userId, req.user?.role)) {
-      return res.status(403).json({ success: false, message: 'Unauthorized access to this chat' });
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access to this chat',
+        errorCode: 'GL_AUTH_001',
+      });
     }
 
     let messages;
@@ -222,7 +320,7 @@ export const getMessages = async (req: AuthRequest, res: Response, next: NextFun
 
     // Cursor-based pagination on _id to avoid skip() shifting under concurrent inserts.
     if (cursor && !isMongoObjectId(cursor)) {
-      return res.status(400).json({ success: false, message: 'Invalid cursor' });
+      return res.status(400).json({ success: false, message: 'Invalid cursor', errorCode: 'GL_VAL_001' });
     }
 
     const orderOid = new Types.ObjectId(orderId);
@@ -281,24 +379,29 @@ export const sendMessage = async (req: AuthRequest, res: Response, next: NextFun
     };
 
     if (!req.user?._id) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     const order = await Order.findById(orderId);
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
     if (req.user?.role === 'ADMIN') {
       return res.status(403).json({
         success: false,
         message: 'Admin can view chat history but cannot send messages',
+        errorCode: 'GL_AUTH_001',
       });
     }
 
     const userId = req.user?._id?.toString();
     if (!userMayAccessOrderChat(order, userId, req.user?.role)) {
-      return res.status(403).json({ success: false, message: 'Unauthorized access to this chat' });
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access to this chat',
+        errorCode: 'GL_AUTH_001',
+      });
     }
 
     const createdBy = idKey(order.createdBy);
@@ -337,14 +440,14 @@ export const sendMessage = async (req: AuthRequest, res: Response, next: NextFun
 export const sendChatImage = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.user?._id) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No image uploaded' });
+      return res.status(400).json({ success: false, message: 'No image uploaded', errorCode: 'GL_VAL_002' });
     }
     if (!req.file.mimetype.startsWith('image/')) {
-      return res.status(400).json({ success: false, message: 'File must be an image' });
+      return res.status(400).json({ success: false, message: 'File must be an image', errorCode: 'GL_VAL_001' });
     }
 
     const { orderId, chatId } = req.body as { orderId?: string; chatId?: string };
@@ -352,19 +455,24 @@ export const sendChatImage = async (req: AuthRequest, res: Response, next: NextF
 
     const order = await Order.findById(threadId);
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
     if (req.user?.role === 'ADMIN') {
       return res.status(403).json({
         success: false,
         message: 'Admin can view chat history but cannot send images',
+        errorCode: 'GL_AUTH_001',
       });
     }
 
     const userId = req.user._id.toString();
     if (!userMayAccessOrderChat(order, userId, req.user?.role)) {
-      return res.status(403).json({ success: false, message: 'Unauthorized access to this chat' });
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access to this chat',
+        errorCode: 'GL_AUTH_001',
+      });
     }
 
     let mediaUrl: string;
@@ -379,7 +487,7 @@ export const sendChatImage = async (req: AuthRequest, res: Response, next: NextF
       mediaUrl = s3Service.toPublicUrl(mediaKey);
     } catch (uploadErr) {
       console.error('sendChatImage: S3 upload failed', uploadErr);
-      return res.status(500).json({ success: false, message: 'Image upload failed' });
+      return res.status(500).json({ success: false, message: 'Image upload failed', errorCode: 'GL_SRV_001' });
     }
 
     const createdBy = idKey(order.createdBy);
@@ -419,14 +527,14 @@ export const sendChatImage = async (req: AuthRequest, res: Response, next: NextF
 export const sendChatVideo = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.user?._id) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No video uploaded' });
+      return res.status(400).json({ success: false, message: 'No video uploaded', errorCode: 'GL_VAL_002' });
     }
     if (!req.file.mimetype.startsWith('video/')) {
-      return res.status(400).json({ success: false, message: 'File must be a video' });
+      return res.status(400).json({ success: false, message: 'File must be a video', errorCode: 'GL_VAL_001' });
     }
 
     const { orderId, chatId } = req.body as { orderId?: string; chatId?: string };
@@ -434,19 +542,24 @@ export const sendChatVideo = async (req: AuthRequest, res: Response, next: NextF
 
     const order = await Order.findById(threadId);
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
     if (req.user?.role === 'ADMIN') {
       return res.status(403).json({
         success: false,
         message: 'Admin can view chat history but cannot send videos',
+        errorCode: 'GL_AUTH_001',
       });
     }
 
     const userId = req.user._id.toString();
     if (!userMayAccessOrderChat(order, userId, req.user?.role)) {
-      return res.status(403).json({ success: false, message: 'Unauthorized access to this chat' });
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access to this chat',
+        errorCode: 'GL_AUTH_001',
+      });
     }
 
     let mediaUrl: string;
@@ -461,7 +574,7 @@ export const sendChatVideo = async (req: AuthRequest, res: Response, next: NextF
       mediaUrl = s3Service.toPublicUrl(mediaKey);
     } catch (uploadErr) {
       console.error('sendChatVideo: S3 upload failed', uploadErr);
-      return res.status(500).json({ success: false, message: 'Video upload failed' });
+      return res.status(500).json({ success: false, message: 'Video upload failed', errorCode: 'GL_SRV_001' });
     }
 
     const createdBy = idKey(order.createdBy);
@@ -501,14 +614,14 @@ export const sendChatVideo = async (req: AuthRequest, res: Response, next: NextF
 export const sendChatVoice = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.user?._id) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No voice note uploaded' });
+      return res.status(400).json({ success: false, message: 'No voice note uploaded', errorCode: 'GL_VAL_002' });
     }
     if (!req.file.mimetype.startsWith('audio/')) {
-      return res.status(400).json({ success: false, message: 'File must be audio' });
+      return res.status(400).json({ success: false, message: 'File must be audio', errorCode: 'GL_VAL_001' });
     }
 
     const { orderId, chatId, duration: durationBody } = req.body as {
@@ -520,19 +633,24 @@ export const sendChatVoice = async (req: AuthRequest, res: Response, next: NextF
 
     const order = await Order.findById(threadId);
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
     if (req.user?.role === 'ADMIN') {
       return res.status(403).json({
         success: false,
         message: 'Admin can view chat history but cannot send voice notes',
+        errorCode: 'GL_AUTH_001',
       });
     }
 
     const userId = req.user._id.toString();
     if (!userMayAccessOrderChat(order, userId, req.user?.role)) {
-      return res.status(403).json({ success: false, message: 'Unauthorized access to this chat' });
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access to this chat',
+        errorCode: 'GL_AUTH_001',
+      });
     }
 
     let mediaUrl: string;
@@ -547,7 +665,7 @@ export const sendChatVoice = async (req: AuthRequest, res: Response, next: NextF
       mediaUrl = s3Service.toPublicUrl(mediaKey);
     } catch (uploadErr) {
       console.error('sendChatVoice: S3 upload failed', uploadErr);
-      return res.status(500).json({ success: false, message: 'Voice note upload failed' });
+      return res.status(500).json({ success: false, message: 'Voice note upload failed', errorCode: 'GL_SRV_001' });
     }
 
     const createdBy = idKey(order.createdBy);
@@ -557,7 +675,7 @@ export const sendChatVoice = async (req: AuthRequest, res: Response, next: NextF
     const durationParsed = Number(durationBody);
     const durationSec =
       durationBody !== undefined && durationBody !== '' && Number.isFinite(durationParsed)
-        ? Math.min(3600, Math.max(0, durationParsed))
+        ? Math.min(MAX_VOICE_DURATION_SECONDS, Math.max(0, durationParsed))
         : 0;
 
     const newMessage = await Message.create({
@@ -595,26 +713,31 @@ export const uploadMedia = async (req: AuthRequest, res: Response, next: NextFun
   try {
     const { orderId } = req.body;
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
+      return res.status(400).json({ success: false, message: 'No file uploaded', errorCode: 'GL_VAL_002' });
     }
     if (!orderId) {
-      return res.status(400).json({ success: false, message: 'orderId is required' });
+      return res.status(400).json({ success: false, message: 'orderId is required', errorCode: 'GL_VAL_001' });
     }
     const order = await Order.findById(orderId);
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
     if (req.user?.role === 'ADMIN') {
       return res.status(403).json({
         success: false,
         message: 'Admin can view chat history but cannot upload chat media',
+        errorCode: 'GL_AUTH_001',
       });
     }
 
     const userId = req.user?._id?.toString();
     if (!userMayAccessOrderChat(order, userId, req.user?.role)) {
-      return res.status(403).json({ success: false, message: 'Unauthorized access to this chat' });
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access to this chat',
+        errorCode: 'GL_AUTH_001',
+      });
     }
 
     const subFolder = req.file.mimetype.startsWith('video/')
@@ -631,10 +754,12 @@ export const uploadMedia = async (req: AuthRequest, res: Response, next: NextFun
       mediaUrl = undefined;
     }
 
+    const resolvedUrl = mediaUrl ?? mediaKey;
     return res.status(200).json({
       success: true,
+      data: { mediaKey, mediaUrl: resolvedUrl },
       mediaKey,
-      mediaUrl: mediaUrl ?? mediaKey,
+      mediaUrl: resolvedUrl,
     });
   } catch (error) {
     next(error);

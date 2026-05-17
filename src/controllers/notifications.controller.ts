@@ -8,7 +8,7 @@ export const listNotifications = async (req: AuthRequest, res: Response, next: N
   try {
     const uid = req.user?._id;
     if (!uid) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
@@ -39,7 +39,7 @@ export const unreadCount = async (req: AuthRequest, res: Response, next: NextFun
   try {
     const uid = req.user?._id;
     if (!uid) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     const count = await Notification.countDocuments({ userId: uid, isRead: false });
@@ -53,17 +53,17 @@ export const markRead = async (req: AuthRequest, res: Response, next: NextFuncti
   try {
     const uid = req.user?._id;
     if (!uid) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : rawId;
     if (typeof id !== 'string') {
-      return res.status(400).json({ success: false, message: 'Invalid notification id' });
+      return res.status(400).json({ success: false, message: 'Invalid notification id', errorCode: 'GL_VAL_001' });
     }
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: 'Invalid notification id' });
+      return res.status(400).json({ success: false, message: 'Invalid notification id', errorCode: 'GL_VAL_001' });
     }
 
     const doc = await Notification.findOneAndUpdate(
@@ -73,7 +73,7 @@ export const markRead = async (req: AuthRequest, res: Response, next: NextFuncti
     ).lean();
 
     if (!doc) {
-      return res.status(404).json({ success: false, message: 'Notification not found' });
+      return res.status(404).json({ success: false, message: 'Notification not found', errorCode: 'GL_NOT_FOUND_001' });
     }
 
     return res.status(200).json({ success: true, data: doc });
@@ -86,7 +86,7 @@ export const markAllRead = async (req: AuthRequest, res: Response, next: NextFun
   try {
     const uid = req.user?._id;
     if (!uid) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     const result = await Notification.updateMany({ userId: uid, isRead: false }, { $set: { isRead: true } });
@@ -100,22 +100,22 @@ export const deleteNotification = async (req: AuthRequest, res: Response, next: 
   try {
     const uid = req.user?._id;
     if (!uid) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : rawId;
     if (typeof id !== 'string') {
-      return res.status(400).json({ success: false, message: 'Invalid notification id' });
+      return res.status(400).json({ success: false, message: 'Invalid notification id', errorCode: 'GL_VAL_001' });
     }
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: 'Invalid notification id' });
+      return res.status(400).json({ success: false, message: 'Invalid notification id', errorCode: 'GL_VAL_001' });
     }
 
     const del = await Notification.deleteOne({ _id: id, userId: uid });
     if (del.deletedCount === 0) {
-      return res.status(404).json({ success: false, message: 'Notification not found' });
+      return res.status(404).json({ success: false, message: 'Notification not found', errorCode: 'GL_NOT_FOUND_001' });
     }
     return res.status(200).json({ success: true, message: 'Deleted' });
   } catch (e) {
@@ -127,13 +127,13 @@ export const registerPushToken = async (req: AuthRequest, res: Response, next: N
   try {
     const uid = req.user?._id;
     if (!uid) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
     }
 
     const { token, fcmToken } = req.body as { token?: string; fcmToken?: string };
     const resolved = typeof token === 'string' && token.trim() ? token.trim() : fcmToken?.trim();
     if (!resolved) {
-      return res.status(400).json({ success: false, message: 'token is required' });
+      return res.status(400).json({ success: false, message: 'token is required', errorCode: 'GL_VAL_001' });
     }
 
     await registerFcmTokenForUser(uid.toString(), resolved);

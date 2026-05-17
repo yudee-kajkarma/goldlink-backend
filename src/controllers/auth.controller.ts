@@ -142,11 +142,19 @@ export const login = async (req: Request, res: Response) => {
     }
 
     if (!user.isApproved) {
-      return res.status(403).json({ success: false, message: 'Your account is pending admin approval' });
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is pending admin approval',
+        errorCode: 'GL_AUTH_001',
+      });
     }
 
     if (!user.isActive) {
-      return res.status(403).json({ success: false, message: 'Your account is deactivated' });
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is deactivated',
+        errorCode: 'GL_AUTH_001',
+      });
     }
 
     user.lastLogin = new Date();
@@ -172,7 +180,11 @@ export const login = async (req: Request, res: Response) => {
 export const getMe = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user || !req.user._id) {
-      return res.status(401).json({ success: false, message: 'Unauthorized: User information missing' });
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized: User information missing',
+        errorCode: 'GL_AUTH_001',
+      });
     }
 
     const user = await User.findById(req.user._id);
@@ -230,7 +242,11 @@ export const logout = async (req: Request, res: Response) => {
 export const registerFcmToken = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?._id) {
-      return res.status(401).json({ success: false, message: 'Unauthorized: User information missing' });
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized: User information missing',
+        errorCode: 'GL_AUTH_001',
+      });
     }
     const { fcmToken, token } = req.body as { fcmToken?: string; token?: string };
     const resolved = (typeof token === 'string' ? token.trim() : '') || (typeof fcmToken === 'string' ? fcmToken.trim() : '');
@@ -250,7 +266,7 @@ export const updateLanguage = async (req: AuthRequest, res: Response) => {
     if (!req.user?._id) {
       return res
         .status(401)
-        .json({ success: false, message: 'Unauthorized: User information missing' });
+        .json({ success: false, message: 'Unauthorized: User information missing', errorCode: 'GL_AUTH_001' });
     }
 
     const { language } = req.body as { language: 'EN' | 'HI' };

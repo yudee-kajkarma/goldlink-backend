@@ -40,15 +40,20 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 app.get('/healthz', (_req, res) => {
-  res.status(200).json({ success: true });
+  res.status(200).json({ success: true, status: 'ok' });
 });
 
 app.get('/readyz', (_req, res) => {
   const mongoReady = mongoose.connection.readyState === 1; // connected
   if (!mongoReady) {
-    return res.status(503).json({ success: false, message: 'Mongo not ready' });
+    return res.status(503).json({
+      success: false,
+      status: 'not_ready',
+      message: 'Database warming up',
+      errorCode: 'GL_DB_001',
+    });
   }
-  res.status(200).json({ success: true });
+  res.status(200).json({ success: true, status: 'ok' });
 });
 
 // Trust proxy is needed if you are behind a reverse proxy (e.g., Nginx, Heroku, AWS ELB)
@@ -82,16 +87,16 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 
   const message = err instanceof Error ? err.message : String(err);
   if (message.includes('Only image files are allowed')) {
-    return res.status(400).json({ success: false, message });
+    return res.status(400).json({ success: false, message, errorCode: 'GL_VAL_001' });
   }
   if (message.includes('Only video files are allowed')) {
-    return res.status(400).json({ success: false, message });
+    return res.status(400).json({ success: false, message, errorCode: 'GL_VAL_001' });
   }
   if (message.includes('Only audio files are allowed')) {
-    return res.status(400).json({ success: false, message });
+    return res.status(400).json({ success: false, message, errorCode: 'GL_VAL_001' });
   }
   if (message.includes('Invalid file type')) {
-    return res.status(400).json({ success: false, message });
+    return res.status(400).json({ success: false, message, errorCode: 'GL_VAL_001' });
   }
 
   console.error('Unhandled server error:', err);

@@ -6,7 +6,8 @@ export const requireMongoReady = (_req: Request, res: Response, next: NextFuncti
   if (mongoose.connection.readyState !== 1) {
     res.status(503).json({
       success: false,
-      message: 'Database is not ready yet. Retry in a moment.',
+      status: 'not_ready',
+      message: 'Database warming up',
       errorCode: 'GL_DB_001',
     });
     return;

@@ -7,6 +7,8 @@ import type { AuthRequest } from '../types/auth.js';
 import { s3Service } from '../services/s3.service.js';
 import { dispatchNotifications, listActiveAdminIds } from '../services/notification.service.js';
 import { canTransitionOrderStatus } from '../services/orderStatusTransitions.service.js';
+import { buildOrderSearchFilter } from '../utils/orderSearch.util.js';
+import { normalizeOrderPriority } from '../utils/orderPriority.util.js';
 
 // Helper to generate order code
 const generateOrderCode = async () => {
@@ -81,12 +83,20 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
     const karigar = await User.findOne({ _id: assignedTo, role: 'KARIGAR', isActive: true });
     if (!karigar) {
-      return res.status(400).json({ success: false, message: 'assignedTo must be an active KARIGAR user' });
+      return res.status(400).json({
+        success: false,
+        message: 'assignedTo must be an active KARIGAR user',
+        errorCode: 'GL_VAL_001',
+      });
     }
 
     const files = req.files as Express.Multer.File[] | undefined;
     if (!files || files.length < 1) {
-      return res.status(400).json({ success: false, message: 'At least one reference image is required' });
+      return res.status(400).json({
+        success: false,
+        message: 'At least one reference image is required',
+        errorCode: 'GL_VAL_001',
+      });
     }
 
     const orderCode = await generateOrderCode();
@@ -145,7 +155,11 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 // Get own orders
 export const getMyOrders = async (req: AuthRequest, res: Response) => {
   try {
-    const orders = await Order.find({ createdBy: req.user?._id })
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+    const orders = await Order.find({
+      createdBy: req.user?._id,
+      ...buildOrderSearchFilter(search),
+    })
       .populate('assignedTo', 'name role')
       .sort({ createdAt: -1 });
 
@@ -190,7 +204,10 @@ export const updateOrder = async (req: AuthRequest, res: Response) => {
     const allowedFields = ['weight', 'designNotes', 'purity', 'priority', 'expectedDeliveryDate', 'customerRef', 'totalAmount'] as const;
     const updates = Object.fromEntries(
       Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key as (typeof allowedFields)[number]))
-    );
+    ) as Record<string, unknown>;
+    if (typeof updates.priority === 'string' || typeof updates.priority === 'number') {
+      updates.priority = normalizeOrderPriority(updates.priority);
+    }
     const updatedOrder = await Order.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
 
     res.status(200).json({ success: true, data: updatedOrder });

@@ -1,0 +1,1 @@
+export const MAX_VOICE_DURATION_SECONDS = 120;

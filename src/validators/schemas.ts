@@ -1,7 +1,12 @@
-import { Types } from 'mongoose';
 import { z } from 'zod';
+import { ORDER_PRIORITIES } from '../constants/order.constants.js';
+import { MAX_VOICE_DURATION_SECONDS } from '../constants/media.constants.js';
+import { objectIdSchema } from './objectId.schema.js';
 
-const objectIdString = z.string().refine((id) => Types.ObjectId.isValid(id), { message: 'Invalid id' });
+const priorityInputSchema = z.preprocess(
+  (v) => (v === 'HIGH' ? 'URGENT' : v === 'LOW' ? 'NORMAL' : v),
+  z.enum(ORDER_PRIORITIES).optional()
+);
 
 export const registerSchema = z
   .object({
@@ -72,21 +77,21 @@ export const adminCreateUserSchema = z
   .refine((d) => Boolean(d.email) || Boolean(d.phone), { message: 'email or phone is required' });
 
 export const reassignOrderSchema = z.object({
-  karigarId: objectIdString,
+  karigarId: objectIdSchema,
 });
 
 const jewelleryTypes = ['Ring', 'Necklace', 'Bangle', 'Earring', 'Pendant'] as const;
 const metalTypes = ['Gold', 'Silver', 'Platinum', 'Rose Gold'] as const;
 
 export const createOrderBodySchema = z.object({
-  assignedTo: objectIdString,
+  assignedTo: objectIdSchema,
   jewelleryType: z.enum(jewelleryTypes),
   metalType: z.enum(metalTypes),
   weight: z.coerce.number().optional(),
   designNotes: z.string().optional(),
   purity: z.string().optional(),
   expectedDeliveryDate: z.coerce.date().optional(),
-  priority: z.enum(['NORMAL', 'URGENT', 'EXPRESS']).optional(),
+  priority: priorityInputSchema,
   customerRef: z.string().optional(),
   totalAmount: z.coerce.number().nonnegative().optional(),
 });
@@ -121,7 +126,7 @@ export const completeOrderSchema = z.object({
 
 export const sendMessageSchema = z
   .object({
-    orderId: objectIdString,
+    orderId: objectIdSchema,
     content: z.string().optional(),
     messageType: z.enum(['text', 'image', 'video', 'voice']).optional(),
     mediaUrl: z.string().optional(),
@@ -138,20 +143,23 @@ export const sendMessageSchema = z
     if (mt === 'voice') {
       if (data.duration == null) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'duration is required for voice messages' });
-      } else if (data.duration > 120) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'voice note duration must be at most 120 seconds' });
+      } else if (data.duration > MAX_VOICE_DURATION_SECONDS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `voice note duration must be at most ${MAX_VOICE_DURATION_SECONDS} seconds`,
+        });
       }
     }
   });
 
 export const chatUploadBodySchema = z.object({
-  orderId: objectIdString,
+  orderId: objectIdSchema,
 });
 
 export const sendChatImageBodySchema = z
   .object({
-    orderId: objectIdString.optional(),
-    chatId: objectIdString.optional(),
+    orderId: objectIdSchema.optional(),
+    chatId: objectIdSchema.optional(),
   })
   .refine((d) => Boolean(d.orderId ?? d.chatId), { message: 'orderId or chatId is required' });
 
@@ -159,9 +167,15 @@ export const sendChatVideoBodySchema = sendChatImageBodySchema;
 
 export const sendChatVoiceBodySchema = z
   .object({
-    orderId: objectIdString.optional(),
-    chatId: objectIdString.optional(),
+    orderId: objectIdSchema.optional(),
+    chatId: objectIdSchema.optional(),
     /** Duration in seconds (optional; defaults to 0 if omitted). */
-    duration: z.coerce.number().nonnegative().max(3600).optional(),
+    duration: z.coerce.number().nonnegative().max(MAX_VOICE_DURATION_SECONDS).optional(),
   })
   .refine((d) => Boolean(d.orderId ?? d.chatId), { message: 'orderId or chatId is required' });
+
+export const markChatReadBodySchema = z.object({
+  orderId: objectIdSchema,
+});
+
+export { objectIdSchema } from './objectId.schema.js';

@@ -13,6 +13,7 @@ import {
   emitToOrderParticipants,
   isOrderParticipantConnected,
 } from '../services/chatDelivery.service.js';
+import { MAX_VOICE_DURATION_SECONDS } from '../constants/media.constants.js';
 
 function parseClientPayload(payload: unknown): Record<string, unknown> {
   let data: unknown = payload;
@@ -110,8 +111,8 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
         if (duration == null || typeof duration !== 'number' || Number.isNaN(duration)) {
           throw new Error('duration is required for voice messages');
         }
-        if (duration < 0 || duration > 120) {
-          throw new Error('voice note duration must be between 0 and 120 seconds');
+        if (duration < 0 || duration > MAX_VOICE_DURATION_SECONDS) {
+          throw new Error(`voice note duration must be between 0 and ${MAX_VOICE_DURATION_SECONDS} seconds`);
         }
       }
 
@@ -137,6 +138,7 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
       if (recipientOnline) {
         newMessage.isDelivered = true;
         newMessage.deliveredAt = new Date();
+        newMessage.status = 'DELIVERED';
         await newMessage.save();
       }
 
@@ -235,6 +237,7 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
 
       message.isRead = true;
       message.readAt = new Date();
+      message.status = 'READ';
       await message.save();
 
       await emitToOrderParticipants(io, orderIdStr, [

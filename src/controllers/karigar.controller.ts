@@ -4,11 +4,13 @@ import type { AuthRequest } from '../types/auth.js';
 import { s3Service } from '../services/s3.service.js';
 import { canTransitionOrderStatus } from '../services/orderStatusTransitions.service.js';
 import { dispatchNotifications, listActiveAdminIds } from '../services/notification.service.js';
+import { buildOrderSearchFilter } from '../utils/orderSearch.util.js';
 
 // Get assigned orders
 export const getAssignedOrders = async (req: AuthRequest, res: Response) => {
   try {
-    const orders = await Order.find({ assignedTo: req.user?._id })
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+    const orders = await Order.find({ assignedTo: req.user?._id, ...buildOrderSearchFilter(search) })
       .populate('createdBy', 'name role')
       .sort({ createdAt: -1 });
 
@@ -205,20 +207,36 @@ export const uploadCompletionMedia = async (req: AuthRequest, res: Response) => 
     const file = req.file as Express.Multer.File;
 
     if (!file) {
-      return res.status(400).json({ success: false, message: 'No media file provided' });
+      return res.status(400).json({
+        success: false,
+        message: 'No media file provided',
+        errorCode: 'GL_VAL_002',
+      });
     }
 
     if (!orderId) {
-      return res.status(400).json({ success: false, message: 'Order id is required' });
+      return res.status(400).json({
+        success: false,
+        message: 'Order id is required',
+        errorCode: 'GL_VAL_001',
+      });
     }
 
     const order = await Order.findOne({ _id: orderId, assignedTo: req.user?._id });
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+        errorCode: 'GL_NOT_FOUND_002',
+      });
     }
 
     const key = await s3Service.uploadFile(file.buffer, file.mimetype, 'orders', orderId, 'completion');
-    return res.status(200).json({ success: true, mediaKey: key });
+    return res.status(200).json({
+      success: true,
+      data: { mediaKey: key },
+      mediaKey: key,
+    });
   } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
   }

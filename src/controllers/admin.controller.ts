@@ -8,6 +8,8 @@ import type { AuthRequest } from '../types/auth.js';
 import Order from '../models/order.model.js';
 import { dispatchNotifications, listActiveAdminIds } from '../services/notification.service.js';
 import { buildAdminAnalytics } from '../services/orderAnalytics.service.js';
+import { normalizeOrderPriority } from '../utils/orderPriority.util.js';
+import { buildOrderSearchFilter } from '../utils/orderSearch.util.js';
 import { normalizeEmail, normalizePhone } from '../utils/userIdentity.js';
 
 // Get all users (with optional role filtering)
@@ -164,19 +166,21 @@ export const adminCreateUser = async (req: AuthRequest, res: Response) => {
 // Get all orders (with optional filters)
 export const getOrders = async (req: Request, res: Response) => {
   try {
-    const { status, karigar, staff, type } = req.query;
-    let query: any = {};
-    
+    const { status, karigar, staff, type, search } = req.query;
+    let query: Record<string, unknown> = {};
+
     if (status) query.status = status;
     if (karigar) query.assignedTo = karigar;
     if (staff) query.createdBy = staff;
     if (type) query.jewelleryType = type;
+    const searchQ = buildOrderSearchFilter(typeof search === 'string' ? search : undefined);
+    query = { ...query, ...searchQ };
 
     const orders = await Order.find(query)
       .populate('createdBy', 'name email phone')
       .populate('assignedTo', 'name email phone')
       .sort({ createdAt: -1 });
-      
+
     res.status(200).json({ success: true, count: orders.length, data: orders });
   } catch (_error: unknown) {
     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
@@ -341,7 +345,7 @@ export const exportOrders = async (req: Request, res: Response) => {
           o.status,
           o.jewelleryType,
           o.metalType,
-          o.priority,
+          normalizeOrderPriority(o.priority),
           created?.name ?? '',
           assigned?.name ?? '',
           total ?? '',

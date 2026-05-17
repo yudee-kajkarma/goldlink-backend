@@ -7,6 +7,9 @@ import {
   sendChatVideo,
   sendChatVoice,
   listChatRooms,
+  getChatUnreadCount,
+  markChatRead,
+  getChatOrderRoomDetail,
 } from '../controllers/chat.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { requireMongoReady } from '../middlewares/mongoReady.middleware.js';
@@ -25,6 +28,7 @@ import {
   sendChatImageBodySchema,
   sendChatVideoBodySchema,
   sendChatVoiceBodySchema,
+  markChatReadBodySchema,
 } from '../validators/schemas.js';
 
 const router = Router();
@@ -65,7 +69,10 @@ const sendVoiceUpload = chatVoiceUpload.fields([
 ]);
 
 router.get('/rooms', listChatRooms);
+router.get('/unread', getChatUnreadCount);
 router.get('/messages/:chatId', getMessages);
+router.get('/orders/:orderId', getChatOrderRoomDetail);
+router.post('/read', validateBody(markChatReadBodySchema), markChatRead);
 router.post('/', validateBody(sendMessageSchema), sendMessage);
 router.post(
   '/send-image',
