@@ -1,0 +1,88 @@
+name: Deploy to Lightsail
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: lightsail-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REMOTE_HOST: ${{ secrets.LIGHTSAIL_HOST }}
+      REMOTE_USER: ubuntu
+      REMOTE_DIR: /opt/goldlink-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install + build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.LIGHTSAIL_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$REMOTE_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Write secret files locally
+        run: |
+          echo "${{ secrets.ENV_FILE_B64 }}" | base64 -d > /tmp/.env.deploy
+          echo "${{ secrets.FIREBASE_ADMIN_JSON_B64 }}" | base64 -d > /tmp/firebase-admin.json.deploy
+
+      - name: Rsync code to instance
+        run: |
+          rsync -az --delete \
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=src \
+            --exclude=test \
+            -e "ssh -i ~/.ssh/id_ed25519" \
+            dist/ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/dist/"
+          rsync -az \
+            -e "ssh -i ~/.ssh/id_ed25519" \
+            package.json package-lock.json \
+            "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
+
+      - name: Upload secrets to instance
+        run: |
+          scp -i ~/.ssh/id_ed25519 /tmp/.env.deploy "$REMOTE_USER@$REMOTE_HOST:/etc/goldlink/.env"
+          scp -i ~/.ssh/id_ed25519 /tmp/firebase-admin.json.deploy "$REMOTE_USER@$REMOTE_HOST:/etc/goldlink/firebase-admin.json"
+          ssh -i ~/.ssh/id_ed25519 "$REMOTE_USER@$REMOTE_HOST" 'chmod 600 /etc/goldlink/.env /etc/goldlink/firebase-admin.json'
+
+      - name: Install prod deps + restart service
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$REMOTE_USER@$REMOTE_HOST" '
+            set -e
+            cd /opt/goldlink-backend
+            npm ci --omit=dev
+            sudo /bin/systemctl restart goldlink-backend
+            sleep 3
+            sudo /bin/systemctl is-active goldlink-backend
+          '
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 5 "https://goldlinkapi.yudee.me/healthz" > /dev/null; then
+              echo "Health OK"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Health check failed"
+          ssh -i ~/.ssh/id_ed25519 "$REMOTE_USER@$REMOTE_HOST" 'sudo journalctl -u goldlink-backend -n 50 --no-pager' || true
+          exit 1
