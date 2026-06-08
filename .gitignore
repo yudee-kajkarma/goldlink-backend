@@ -11,3 +11,5 @@ pnpm-debug.log*
 
 ts_errors*.txt
 dist/
+
+*-firebase-adminsdk-*.json
