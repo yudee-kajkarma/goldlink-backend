@@ -48,7 +48,12 @@ export async function unregisterFcmTokenForUser(userId: string, token: string): 
   const filtered = (user.fcmTokens ?? []).filter((t) => t && t !== trimmed);
   user.fcmTokens = filtered;
   if (user.fcmToken === trimmed) {
-    user.fcmToken = filtered[0];
+    const next = filtered[0];
+    if (next) {
+      user.fcmToken = next;
+    } else {
+      user.set('fcmToken', undefined);
+    }
   }
   await user.save();
 }
