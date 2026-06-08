@@ -2,7 +2,7 @@ import type { Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import Notification from '../models/notification.model.js';
 import type { AuthRequest } from '../types/auth.js';
-import { registerFcmTokenForUser } from '../services/fcmToken.service.js';
+import { registerFcmTokenForUser, unregisterFcmTokenForUser } from '../services/fcmToken.service.js';
 
 export const listNotifications = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -138,6 +138,26 @@ export const registerPushToken = async (req: AuthRequest, res: Response, next: N
 
     await registerFcmTokenForUser(uid.toString(), resolved);
     return res.status(200).json({ success: true, message: 'Push token registered' });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const unregisterPushToken = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const uid = req.user?._id;
+    if (!uid) {
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
+    }
+
+    const { token, fcmToken } = req.body as { token?: string; fcmToken?: string };
+    const resolved = typeof token === 'string' && token.trim() ? token.trim() : fcmToken?.trim();
+    if (!resolved) {
+      return res.status(400).json({ success: false, message: 'token is required', errorCode: 'GL_VAL_001' });
+    }
+
+    await unregisterFcmTokenForUser(uid.toString(), resolved);
+    return res.status(200).json({ success: true, message: 'Push token unregistered' });
   } catch (e) {
     next(e);
   }

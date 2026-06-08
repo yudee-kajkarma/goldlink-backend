@@ -32,3 +32,23 @@ export async function registerFcmTokenForUser(userId: string, token: string): Pr
   user.fcmTokens = unique;
   await user.save();
 }
+
+/** Remove a specific device token from a user's record. No-op if absent. */
+export async function unregisterFcmTokenForUser(userId: string, token: string): Promise<void> {
+  const trimmed = token.trim();
+  if (!trimmed) {
+    return;
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return;
+  }
+
+  const filtered = (user.fcmTokens ?? []).filter((t) => t && t !== trimmed);
+  user.fcmTokens = filtered;
+  if (user.fcmToken === trimmed) {
+    user.fcmToken = filtered[0];
+  }
+  await user.save();
+}
