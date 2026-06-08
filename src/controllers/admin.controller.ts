@@ -102,15 +102,17 @@ export const adminCreateUser = async (req: AuthRequest, res: Response) => {
     const normEmail = normalizeEmail(email);
     const normPhone = normalizePhone(phone);
 
-    const orClause: Array<{ email?: string; phone?: string }> = [];
-    if (normEmail) orClause.push({ email: normEmail });
-    if (normPhone) orClause.push({ phone: normPhone });
-    const dupQ = User.findOne({ $or: orClause });
-    const userExists = orClause.length
-      ? await (normEmail ? dupQ.collation({ locale: 'en', strength: 2 }) : dupQ)
-      : null;
-    if (userExists) {
-      return res.status(400).json({ success: false, message: 'User with this email or phone already exists', errorCode: 'GL_VAL_001' });
+    if (normEmail) {
+      const emailExists = await User.findOne({ email: normEmail }).collation({ locale: 'en', strength: 2 });
+      if (emailExists) {
+        return res.status(400).json({ success: false, message: 'A user with this email already exists', errorCode: 'GL_VAL_001' });
+      }
+    }
+    if (normPhone) {
+      const phoneExists = await User.findOne({ phone: normPhone });
+      if (phoneExists) {
+        return res.status(400).json({ success: false, message: 'A user with this phone number already exists', errorCode: 'GL_VAL_001' });
+      }
     }
 
     if (!req.user?._id) {
