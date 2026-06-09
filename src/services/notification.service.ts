@@ -140,10 +140,28 @@ async function sendFcmToUser(
       const message: {
         token: string;
         notification: { title: string; body: string };
+        android: {
+          priority: 'high';
+          notification: {
+            channelId: string;
+            sound: string;
+            defaultSound: boolean;
+            defaultVibrateTimings: boolean;
+          };
+        };
         data?: Record<string, string>;
       } = {
         token,
         notification: { title, body },
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'goldlink-notifications',
+            sound: 'default',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+          },
+        },
       };
       if (flatData && Object.keys(flatData).length > 0) {
         message.data = flatData;
