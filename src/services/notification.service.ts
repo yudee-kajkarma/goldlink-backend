@@ -1,4 +1,4 @@
-import { cert, getApps, initializeApp } from 'firebase-admin/app';
+import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import type { Server as IoServer } from 'socket.io';
 import mongoose from 'mongoose';
@@ -78,18 +78,33 @@ function ensureFirebase(): boolean {
   if (getApps().length > 0) {
     return true;
   }
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!raw) {
-    return false;
+
+  const inlineJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (inlineJson) {
+    try {
+      const serviceAccount = JSON.parse(inlineJson) as Record<string, unknown>;
+      initializeApp({ credential: cert(serviceAccount) });
+      console.log('[notify] Firebase initialized from FIREBASE_SERVICE_ACCOUNT_JSON');
+      return true;
+    } catch (e) {
+      console.error('[notify] Firebase init from FIREBASE_SERVICE_ACCOUNT_JSON failed', e);
+    }
   }
-  try {
-    const serviceAccount = JSON.parse(raw) as Record<string, unknown>;
-    initializeApp({ credential: cert(serviceAccount) });
-    return true;
-  } catch (e) {
-    console.error('[notify] Firebase initialization failed', e);
-    return false;
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    try {
+      initializeApp({ credential: applicationDefault() });
+      console.log(
+        '[notify] Firebase initialized via GOOGLE_APPLICATION_CREDENTIALS=',
+        process.env.GOOGLE_APPLICATION_CREDENTIALS,
+      );
+      return true;
+    } catch (e) {
+      console.error('[notify] Firebase init from GOOGLE_APPLICATION_CREDENTIALS failed', e);
+    }
   }
+
+  return false;
 }
 
 async function loadFcmTokensForUser(userId: string): Promise<string[]> {
@@ -143,8 +158,6 @@ async function sendFcmToUser(
         android: {
           priority: 'high';
           notification: {
-            channelId: string;
-            sound: string;
             defaultSound: boolean;
             defaultVibrateTimings: boolean;
           };
@@ -156,8 +169,6 @@ async function sendFcmToUser(
         android: {
           priority: 'high',
           notification: {
-            channelId: 'goldlink-notifications',
-            sound: 'default',
             defaultSound: true,
             defaultVibrateTimings: true,
           },
