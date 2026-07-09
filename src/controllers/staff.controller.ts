@@ -78,7 +78,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       expectedDeliveryDate,
       priority,
       customerRef,
-      totalAmount,
+      // MONEY-DISABLED: totalAmount,
     } = req.body;
 
     const karigar = await User.findOne({ _id: assignedTo, role: 'KARIGAR', isActive: true });
@@ -113,7 +113,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       expectedDeliveryDate,
       priority: priority ?? 'NORMAL',
       customerRef,
-      totalAmount,
+      // MONEY-DISABLED: totalAmount,
       images: [],
       statusLogs: [{
         status: 'PENDING',
@@ -201,7 +201,8 @@ export const updateOrder = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ success: false, message: 'Cannot update a completed or received order' });
     }
 
-    const allowedFields = ['weight', 'designNotes', 'purity', 'priority', 'expectedDeliveryDate', 'customerRef', 'totalAmount'] as const;
+    // MONEY-DISABLED: 'totalAmount' removed from allowedFields
+    const allowedFields = ['weight', 'designNotes', 'purity', 'priority', 'expectedDeliveryDate', 'customerRef'] as const;
     const updates = Object.fromEntries(
       Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key as (typeof allowedFields)[number]))
     ) as Record<string, unknown>;
@@ -332,48 +333,48 @@ export const requestRevision = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Payments endpoints
-export const addPayment = async (req: AuthRequest, res: Response) => {
-  try {
-    if (!req.body) {
-      return res.status(400).json({ success: false, message: 'Request body is missing' });
-    }
-    const { amount, type, status } = req.body;
-
-    const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });
-
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
-    }
-
-    order.payments.push({
-      amount,
-      type,
-      status: status || 'PAID',
-      paidAt: new Date()
-    });
-
-    await order.save();
-
-    res.status(201).json({ success: true, data: order.payments });
-  } catch (_error: unknown) {
-    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
-  }
-};
-
-export const getPayments = async (req: AuthRequest, res: Response) => {
-  try {
-    const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });
-
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
-    }
-
-    res.status(200).json({ success: true, data: order.payments });
-  } catch (_error: unknown) {
-    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
-  }
-};
+// MONEY-DISABLED: Payments endpoints
+// export const addPayment = async (req: AuthRequest, res: Response) => {
+//   try {
+//     if (!req.body) {
+//       return res.status(400).json({ success: false, message: 'Request body is missing' });
+//     }
+//     const { amount, type, status } = req.body;
+//
+//     const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });
+//
+//     if (!order) {
+//       return res.status(404).json({ success: false, message: 'Order not found' });
+//     }
+//
+//     order.payments.push({
+//       amount,
+//       type,
+//       status: status || 'PAID',
+//       paidAt: new Date()
+//     });
+//
+//     await order.save();
+//
+//     res.status(201).json({ success: true, data: order.payments });
+//   } catch (_error: unknown) {
+//     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
+//   }
+// };
+//
+// export const getPayments = async (req: AuthRequest, res: Response) => {
+//   try {
+//     const order = await Order.findOne({ _id: req.params.id, createdBy: req.user?._id });
+//
+//     if (!order) {
+//       return res.status(404).json({ success: false, message: 'Order not found' });
+//     }
+//
+//     res.status(200).json({ success: true, data: order.payments });
+//   } catch (_error: unknown) {
+//     res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
+//   }
+// };
 
 // Material endpoints
 export const addIssuedMaterial = async (req: AuthRequest, res: Response) => {

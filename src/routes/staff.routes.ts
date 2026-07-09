@@ -6,7 +6,7 @@ import { validateBody } from '../middlewares/validate.middleware.js';
 import {
   createOrderBodySchema,
   staffOrderStatusSchema,
-  addPaymentSchema,
+  // MONEY-DISABLED: addPaymentSchema,
   addIssuedMaterialSchema,
   updateReturnedMaterialSchema,
 } from '../validators/schemas.js';
@@ -17,8 +17,8 @@ import {
   updateOrder,
   updateOrderStatus,
   requestRevision,
-  addPayment,
-  getPayments,
+  // MONEY-DISABLED: addPayment,
+  // MONEY-DISABLED: getPayments,
   addIssuedMaterial,
   updateReturnedMaterial,
   getKarigars,
@@ -46,9 +46,9 @@ router.patch('/orders/:id', updateOrder);
 router.patch('/orders/:id/status', validateBody(staffOrderStatusSchema), updateOrderStatus);
 router.patch('/orders/:id/revision', requestRevision);
 
-// Payment routes
-router.post('/orders/:id/payments', validateBody(addPaymentSchema), addPayment);
-router.get('/orders/:id/payments', getPayments);
+// MONEY-DISABLED: Payment routes
+// router.post('/orders/:id/payments', validateBody(addPaymentSchema), addPayment);
+// router.get('/orders/:id/payments', getPayments);
 
 // Material routes
 router.post('/orders/:id/material', validateBody(addIssuedMaterialSchema), addIssuedMaterial);

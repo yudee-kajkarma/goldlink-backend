@@ -266,11 +266,12 @@ function escapeCsvCell(value: unknown): string {
   return s;
 }
 
-function paidTotal(order: { payments?: Array<{ amount?: number; status?: string }> }): number {
-  return (order.payments ?? [])
-    .filter((p) => p.status === 'PAID')
-    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-}
+// MONEY-DISABLED: paidTotal helper
+// function paidTotal(order: { payments?: Array<{ amount?: number; status?: string }> }): number {
+//   return (order.payments ?? [])
+//     .filter((p) => p.status === 'PAID')
+//     .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+// }
 
 /**
  * Admin dashboard analytics (real order data). Query: ?range=7d|30d|12m | ?from=&to=
@@ -328,9 +329,9 @@ export const exportOrders = async (req: Request, res: Response) => {
         'priority',
         'staffName',
         'karigarName',
-        'totalAmount',
-        'paidTotal',
-        'balanceDue',
+        // MONEY-DISABLED: 'totalAmount',
+        // MONEY-DISABLED: 'paidTotal',
+        // MONEY-DISABLED: 'balanceDue',
         'createdAt',
         'expectedDeliveryDate',
       ];
@@ -338,10 +339,11 @@ export const exportOrders = async (req: Request, res: Response) => {
       for (const o of orders) {
         const created = o.createdBy as { name?: string } | null;
         const assigned = o.assignedTo as { name?: string } | null;
-        const total = o.totalAmount;
-        const paid = paidTotal(o);
-        const balance =
-          total != null && !Number.isNaN(Number(total)) ? Math.max(0, Number(total) - paid) : '';
+        // MONEY-DISABLED:
+        // const total = o.totalAmount;
+        // const paid = paidTotal(o);
+        // const balance =
+        //   total != null && !Number.isNaN(Number(total)) ? Math.max(0, Number(total) - paid) : '';
         const row = [
           o.orderCode,
           o.status,
@@ -350,9 +352,9 @@ export const exportOrders = async (req: Request, res: Response) => {
           normalizeOrderPriority(o.priority),
           created?.name ?? '',
           assigned?.name ?? '',
-          total ?? '',
-          paid,
-          balance,
+          // MONEY-DISABLED: total ?? '',
+          // MONEY-DISABLED: paid,
+          // MONEY-DISABLED: balance,
           o.createdAt?.toISOString() ?? '',
           o.expectedDeliveryDate ? new Date(o.expectedDeliveryDate).toISOString() : '',
         ].map(escapeCsvCell);
@@ -372,12 +374,14 @@ export const exportOrders = async (req: Request, res: Response) => {
     for (const o of orders) {
       const created = o.createdBy as { name?: string } | null;
       const assigned = o.assignedTo as { name?: string } | null;
-      const paid = paidTotal(o);
-      const total = o.totalAmount;
-      const balance =
-        total != null && !Number.isNaN(Number(total)) ? Math.max(0, Number(total) - paid) : 'n/a';
+      // MONEY-DISABLED:
+      // const paid = paidTotal(o);
+      // const total = o.totalAmount;
+      // const balance =
+      //   total != null && !Number.isNaN(Number(total)) ? Math.max(0, Number(total) - paid) : 'n/a';
       doc.text(
-        `${o.orderCode} | ${o.status} | ${o.jewelleryType} | staff: ${created?.name ?? '-'} | karigar: ${assigned?.name ?? '-'} | total: ${total ?? '-'} | paid: ${paid} | due: ${balance}`
+        // MONEY-DISABLED: removed ` | total: ${total ?? '-'} | paid: ${paid} | due: ${balance}` from the line below
+        `${o.orderCode} | ${o.status} | ${o.jewelleryType} | staff: ${created?.name ?? '-'} | karigar: ${assigned?.name ?? '-'}`
       );
       doc.moveDown(0.25);
     }

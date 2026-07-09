@@ -23,7 +23,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "node --import tsx --test test/chat-contract.test.ts test/smoke.test.mjs",
     "test:smoke:admin": "node --import tsx --test test/admin-smoke.test.ts",
-    "lint": "tsc --noEmit -p tsconfig.json"
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "seed:review-accounts": "tsx src/scripts/seedReviewAccounts.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1039.0",

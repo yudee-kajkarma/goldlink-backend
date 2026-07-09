@@ -25,12 +25,13 @@ export interface IOrder extends Document {
     updatedBy: mongoose.Types.ObjectId;
     createdAt: Date;
   }>;
-  payments: Array<{
-    amount: number;
-    type: "ADVANCE" | "FINAL";
-    status: "PAID" | "PENDING";
-    paidAt: Date;
-  }>;
+  // MONEY-DISABLED: payments
+  // payments: Array<{
+  //   amount: number;
+  //   type: "ADVANCE" | "FINAL";
+  //   status: "PAID" | "PENDING";
+  //   paidAt: Date;
+  // }>;
   materialLogs: Array<{
     issuedWeight?: number;
     returnedWeight?: number;
@@ -38,8 +39,8 @@ export interface IOrder extends Document {
     loggedBy: mongoose.Types.ObjectId;
     loggedAt: Date;
   }>;
-  /** Order total for balance-due (PRD 4.5); sum of paid payments subtracted in balanceDue virtual. */
-  totalAmount?: number;
+  // MONEY-DISABLED: Order total for balance-due (PRD 4.5); sum of paid payments subtracted in balanceDue virtual.
+  // totalAmount?: number;
   reminder24hSentAt?: Date;
   overdueNotifiedAt?: Date;
   idle3DayNotifiedAt?: Date;
@@ -47,7 +48,7 @@ export interface IOrder extends Document {
   updatedAt: Date;
   id?: string;
   orderId?: string;
-  balanceDue?: number;
+  // MONEY-DISABLED: balanceDue?: number;
 }
 
 const orderSchema = new Schema<IOrder>(
@@ -105,7 +106,7 @@ const orderSchema = new Schema<IOrder>(
     expectedDeliveryDate: Date,
     customerRef: String,
 
-    totalAmount: { type: Number, min: 0 },
+    // MONEY-DISABLED: totalAmount: { type: Number, min: 0 },
 
     reminder24hSentAt: Date,
     overdueNotifiedAt: Date,
@@ -135,22 +136,22 @@ const orderSchema = new Schema<IOrder>(
       },
     ],
 
-    //  Payments (Embedded)
-    payments: [
-      {
-        amount: Number,
-        type: {
-          type: String,
-          enum: ["ADVANCE", "FINAL"],
-        },
-        status: {
-          type: String,
-          enum: ["PAID", "PENDING"],
-          default: "PAID",
-        },
-        paidAt: { type: Date, default: Date.now },
-      },
-    ],
+    // MONEY-DISABLED: Payments (Embedded)
+    // payments: [
+    //   {
+    //     amount: Number,
+    //     type: {
+    //       type: String,
+    //       enum: ["ADVANCE", "FINAL"],
+    //     },
+    //     status: {
+    //       type: String,
+    //       enum: ["PAID", "PENDING"],
+    //       default: "PAID",
+    //     },
+    //     paidAt: { type: Date, default: Date.now },
+    //   },
+    // ],
 
     //  Material Logs (Embedded)
     materialLogs: [
@@ -205,15 +206,16 @@ orderSchema.virtual('orderId').get(function() {
   return this._id.toString();
 });
 
-orderSchema.virtual('balanceDue').get(function (this: IOrder) {
-  const total = this.totalAmount;
-  if (total == null || Number.isNaN(Number(total))) {
-    return undefined;
-  }
-  const paid = (this.payments ?? [])
-    .filter((p) => p.status === 'PAID')
-    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  return Math.max(0, Number(total) - paid);
-});
+// MONEY-DISABLED: balanceDue virtual
+// orderSchema.virtual('balanceDue').get(function (this: IOrder) {
+//   const total = this.totalAmount;
+//   if (total == null || Number.isNaN(Number(total))) {
+//     return undefined;
+//   }
+//   const paid = (this.payments ?? [])
+//     .filter((p) => p.status === 'PAID')
+//     .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+//   return Math.max(0, Number(total) - paid);
+// });
 
 export default mongoose.model<IOrder>("Order", orderSchema);

@@ -93,18 +93,19 @@ export const createOrderBodySchema = z.object({
   expectedDeliveryDate: z.coerce.date().optional(),
   priority: priorityInputSchema,
   customerRef: z.string().optional(),
-  totalAmount: z.coerce.number().nonnegative().optional(),
+  // MONEY-DISABLED: totalAmount: z.coerce.number().nonnegative().optional(),
 });
 
 export const staffOrderStatusSchema = z.object({
   status: z.enum(['RECEIVED', 'REVISION_REQUESTED', 'ON_HOLD']),
 });
 
-export const addPaymentSchema = z.object({
-  amount: z.coerce.number().nonnegative(),
-  type: z.enum(['ADVANCE', 'FINAL']),
-  status: z.enum(['PAID', 'PENDING']).optional(),
-});
+// MONEY-DISABLED: addPayment validation
+// export const addPaymentSchema = z.object({
+//   amount: z.coerce.number().nonnegative(),
+//   type: z.enum(['ADVANCE', 'FINAL']),
+//   status: z.enum(['PAID', 'PENDING']).optional(),
+// });
 
 export const addIssuedMaterialSchema = z.object({
   issuedWeight: z.coerce.number().nonnegative(),
