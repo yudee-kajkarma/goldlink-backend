@@ -94,6 +94,23 @@ export const deactivateUser = async (req: Request, res: Response) => {
   }
 };
 
+// Reactivate Account
+export const reactivateUser = async (req: Request, res: Response) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found', errorCode: "GL_NOT_FOUND_001" });
+    }
+
+    user.isActive = true;
+    await user.save();
+
+    res.status(200).json({ success: true, message: 'User reactivated successfully', data: user });
+  } catch (_error: unknown) {
+    res.status(500).json({ success: false, message: 'Internal server error', errorCode: 'GL_SRV_001' });
+  }
+};
+
 /** Admin creates STAFF / KARIGAR with immediate approval (PRD 2.1). */
 export const adminCreateUser = async (req: AuthRequest, res: Response) => {
   try {
