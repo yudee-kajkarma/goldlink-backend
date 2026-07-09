@@ -131,15 +131,17 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
     void (async () => {
       try {
-        const admins = await listActiveAdminIds();
+        // Only the assigned karigar is notified (with push) — admins and the
+        // creator don't need an alert for an order they can already see.
         await dispatchNotifications({
-          recipientIds: [String(order.assignedTo), ...admins],
+          recipientIds: [String(order.assignedTo)],
           title: 'New Order Assigned',
           body: `You have a new assignment: ${order.orderCode}`,
           type: 'ORDER_CREATED',
           entityType: 'order',
           entityId: order._id.toString(),
           data: { orderCode: order.orderCode },
+          sendPush: true,
         });
       } catch (e) {
         console.error('[notify] createOrder dispatch failed', e);
