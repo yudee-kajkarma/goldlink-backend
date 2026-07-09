@@ -10,6 +10,7 @@ import { isMongoObjectId } from '../utils/objectId.js';
 import { messageToPlain } from '../utils/messagePayload.js';
 import { enrichChatMessageForClient } from '../utils/chatMessageSerialize.js';
 import { isReservedChatPathSegment } from '../constants/chat.constants.js';
+import { isOrderChatParticipant } from '../utils/chatAccess.util.js';
 import { MAX_VOICE_DURATION_SECONDS } from '../constants/media.constants.js';
 import {
   aggregateChatRooms,
@@ -387,10 +388,10 @@ export const sendMessage = async (req: AuthRequest, res: Response, next: NextFun
       return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
-    if (req.user?.role === 'ADMIN') {
+    if (req.user?.role === 'ADMIN' && !isOrderChatParticipant(order, req.user._id.toString())) {
       return res.status(403).json({
         success: false,
-        message: 'Admin can view chat history but cannot send messages',
+        message: 'Admin can view chat history but only order participants can send messages',
         errorCode: 'GL_AUTH_001',
       });
     }
@@ -458,10 +459,10 @@ export const sendChatImage = async (req: AuthRequest, res: Response, next: NextF
       return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
-    if (req.user?.role === 'ADMIN') {
+    if (req.user?.role === 'ADMIN' && !isOrderChatParticipant(order, req.user._id.toString())) {
       return res.status(403).json({
         success: false,
-        message: 'Admin can view chat history but cannot send images',
+        message: 'Admin can view chat history but only order participants can send images',
         errorCode: 'GL_AUTH_001',
       });
     }
@@ -545,10 +546,10 @@ export const sendChatVideo = async (req: AuthRequest, res: Response, next: NextF
       return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
-    if (req.user?.role === 'ADMIN') {
+    if (req.user?.role === 'ADMIN' && !isOrderChatParticipant(order, req.user._id.toString())) {
       return res.status(403).json({
         success: false,
-        message: 'Admin can view chat history but cannot send videos',
+        message: 'Admin can view chat history but only order participants can send videos',
         errorCode: 'GL_AUTH_001',
       });
     }
@@ -636,10 +637,10 @@ export const sendChatVoice = async (req: AuthRequest, res: Response, next: NextF
       return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
-    if (req.user?.role === 'ADMIN') {
+    if (req.user?.role === 'ADMIN' && !isOrderChatParticipant(order, req.user._id.toString())) {
       return res.status(403).json({
         success: false,
-        message: 'Admin can view chat history but cannot send voice notes',
+        message: 'Admin can view chat history but only order participants can send voice notes',
         errorCode: 'GL_AUTH_001',
       });
     }
@@ -723,10 +724,10 @@ export const uploadMedia = async (req: AuthRequest, res: Response, next: NextFun
       return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
     }
 
-    if (req.user?.role === 'ADMIN') {
+    if (req.user?.role === 'ADMIN' && !isOrderChatParticipant(order, req.user._id.toString())) {
       return res.status(403).json({
         success: false,
-        message: 'Admin can view chat history but cannot upload chat media',
+        message: 'Admin can view chat history but only order participants can upload chat media',
         errorCode: 'GL_AUTH_001',
       });
     }

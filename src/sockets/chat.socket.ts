@@ -8,6 +8,7 @@ import { isMongoObjectId } from '../utils/objectId.js';
 import { messageToPlain } from '../utils/messagePayload.js';
 import { enrichChatMessageForClient } from '../utils/chatMessageSerialize.js';
 import { chatSenderFromUserLike } from '../utils/chatSender.util.js';
+import { isOrderChatParticipant } from '../utils/chatAccess.util.js';
 import type { IUser } from '../models/user.model.js';
 import {
   emitToOrderParticipants,
@@ -87,10 +88,6 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
     try {
       const data = parseClientPayload(rawPayload);
 
-      if (user.role === 'ADMIN') {
-        throw new Error('Admins can view chat via API but cannot send socket messages');
-      }
-
       const orderId = data.orderId as string | undefined;
       const content = data.content as string | undefined;
       const messageType = (data.messageType as string | undefined) ?? 'text';
@@ -117,6 +114,13 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
       }
 
       const order = await validateOrderAccess(orderId);
+
+      // Admins may observe any order chat, but only the two order
+      // participants (creator + assigned karigar) may send messages.
+      if (user.role === 'ADMIN' && !isOrderChatParticipant(order, user._id.toString())) {
+        throw new Error('Admins can view this chat but only order participants can send messages');
+      }
+
       const room = orderId.trim();
 
       const userIdStr = user._id.toString();
@@ -221,10 +225,6 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
 
   socket.on('message_read', async (payload, callback) => {
     try {
-      if (user.role === 'ADMIN') {
-        throw new Error('Admins cannot mark messages as read');
-      }
-
       const data = parseClientPayload(payload);
       const messageId = data.messageId as string | undefined;
       if (!messageId) throw new Error('messageId is required');
@@ -233,7 +233,11 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
       if (!message) throw new Error('Message not found');
 
       const orderIdStr = message.orderId.toString();
-      await validateOrderAccess(orderIdStr);
+      const order = await validateOrderAccess(orderIdStr);
+
+      if (user.role === 'ADMIN' && !isOrderChatParticipant(order, user._id.toString())) {
+        throw new Error('Only order participants can mark messages as read');
+      }
 
       message.isRead = true;
       message.readAt = new Date();
