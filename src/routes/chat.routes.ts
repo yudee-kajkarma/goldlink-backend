@@ -6,6 +6,7 @@ import {
   sendChatImage,
   sendChatVideo,
   sendChatVoice,
+  sendChatDocument,
   listChatRooms,
   getChatUnreadCount,
   markChatRead,
@@ -20,6 +21,7 @@ import {
   chatImageUpload,
   chatVideoUpload,
   chatVoiceUpload,
+  chatDocumentUpload,
 } from '../middlewares/multer.js';
 import { validateBody } from '../middlewares/validate.middleware.js';
 import {
@@ -28,6 +30,7 @@ import {
   sendChatImageBodySchema,
   sendChatVideoBodySchema,
   sendChatVoiceBodySchema,
+  sendChatDocumentBodySchema,
   markChatReadBodySchema,
 } from '../validators/schemas.js';
 
@@ -68,6 +71,11 @@ const sendVoiceUpload = chatVoiceUpload.fields([
   { name: 'media', maxCount: 1 },
 ]);
 
+const sendDocumentUpload = chatDocumentUpload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'media', maxCount: 1 },
+]);
+
 router.get('/rooms', listChatRooms);
 router.get('/unread', getChatUnreadCount);
 router.get('/messages/:chatId', getMessages);
@@ -97,6 +105,14 @@ router.post(
   validateMediaSize,
   validateBody(sendChatVoiceBodySchema),
   sendChatVoice
+);
+router.post(
+  '/send-document',
+  sendDocumentUpload,
+  normalizeChatUploadSingle,
+  validateMediaSize,
+  validateBody(sendChatDocumentBodySchema),
+  sendChatDocument
 );
 router.post(
   '/upload',

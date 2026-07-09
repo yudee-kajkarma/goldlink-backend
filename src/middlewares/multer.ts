@@ -1,5 +1,6 @@
 import multer from 'multer';
 import type { Request, Response, NextFunction } from 'express';
+import { isAllowedChatDocument } from '../constants/media.constants.js';
 
 // Memory storage to keep file in buffer before uploading to S3
 const storage = multer.memoryStorage();
@@ -15,6 +16,8 @@ function envBytes(name: string, fallback: number): number {
 export const CHAT_VIDEO_MAX_BYTES = envBytes('CHAT_VIDEO_MAX_BYTES', 100 * 1024 * 1024);
 /** Default 15MB; override with CHAT_VOICE_MAX_BYTES. */
 export const CHAT_VOICE_MAX_BYTES = envBytes('CHAT_VOICE_MAX_BYTES', 15 * 1024 * 1024);
+/** Default 25MB; override with CHAT_DOCUMENT_MAX_BYTES. */
+export const CHAT_DOCUMENT_MAX_BYTES = envBytes('CHAT_DOCUMENT_MAX_BYTES', 25 * 1024 * 1024);
 
 const limits = {
   fileSize: Math.max(CHAT_VIDEO_MAX_BYTES, CHAT_VOICE_MAX_BYTES, 5 * 1024 * 1024),
@@ -83,6 +86,21 @@ export const chatVoiceUpload = multer({
   fileFilter: audioOnlyFilter,
 });
 
+const documentOnlyFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
+  if (isAllowedChatDocument(file.mimetype, file.originalname)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only document files (PDF, Word, Excel, PowerPoint, CSV, TXT) are allowed'));
+  }
+};
+
+/** POST /api/chat/send-document — office documents only, up to CHAT_DOCUMENT_MAX_BYTES. */
+export const chatDocumentUpload = multer({
+  storage,
+  limits: { fileSize: CHAT_DOCUMENT_MAX_BYTES },
+  fileFilter: documentOnlyFilter,
+});
+
 export const validateMediaSize = (req: Request, res: Response, next: NextFunction) => {
   const files = req.files as Express.Multer.File[] | undefined;
   const file = req.file as Express.Multer.File | undefined;
@@ -119,6 +137,14 @@ export const validateMediaSize = (req: Request, res: Response, next: NextFunctio
       res.status(413).json({
         success: false,
         message: `Voice note exceeds ${Math.floor(CHAT_VOICE_MAX_BYTES / (1024 * 1024))}MB limit`,
+        errorCode: 'GL_VAL_001',
+      });
+      return;
+    }
+    if (!isImage && !isVideo && !isAudio && f.size > CHAT_DOCUMENT_MAX_BYTES) {
+      res.status(413).json({
+        success: false,
+        message: `Document exceeds ${Math.floor(CHAT_DOCUMENT_MAX_BYTES / (1024 * 1024))}MB limit`,
         errorCode: 'GL_VAL_001',
       });
       return;

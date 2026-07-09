@@ -7,7 +7,7 @@ export interface IMessage extends Document {
   senderId: mongoose.Types.ObjectId;
   /** Intended recipient for this message (other party on the order). */
   receiverId?: mongoose.Types.ObjectId;
-  messageType: 'text' | 'image' | 'video' | 'voice';
+  messageType: 'text' | 'image' | 'video' | 'voice' | 'file';
   content?: string;
   mediaUrl?: string;
   thumbnailUrl?: string;
@@ -32,7 +32,7 @@ const MessageSchema = new Schema<IMessage>(
     receiverId: { type: Schema.Types.ObjectId, ref: 'User' },
     messageType: {
       type: String,
-      enum: ['text', 'image', 'video', 'voice'],
+      enum: ['text', 'image', 'video', 'voice', 'file'],
       default: 'text',
     },
     content: { type: String },

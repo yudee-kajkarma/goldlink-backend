@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isReservedChatPathSegment } from '../src/constants/chat.constants.js';
 import { isOrderChatParticipant } from '../src/utils/chatAccess.util.js';
+import { isAllowedChatDocument } from '../src/constants/media.constants.js';
 import { normalizeOrderPriority } from '../src/utils/orderPriority.util.js';
 import { buildOrderSearchFilter } from '../src/utils/orderSearch.util.js';
 import { markChatReadBodySchema, sendChatVoiceBodySchema } from '../src/validators/schemas.js';
@@ -36,6 +37,40 @@ test('chat access: handles populated user refs and ObjectId-like values', () => 
   assert.equal(isOrderChatParticipant(order, creator), true);
   assert.equal(isOrderChatParticipant(order, karigar), true);
   assert.equal(isOrderChatParticipant(order, '507f1f77bcf86cd799439013'), false);
+});
+
+test('chat documents: accepts office formats by mimetype', () => {
+  assert.equal(isAllowedChatDocument('application/pdf', 'report.pdf'), true);
+  assert.equal(
+    isAllowedChatDocument(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'letter.docx',
+    ),
+    true,
+  );
+  assert.equal(
+    isAllowedChatDocument(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'rates.xlsx',
+    ),
+    true,
+  );
+  assert.equal(isAllowedChatDocument('application/msword', 'letter.doc'), true);
+  assert.equal(isAllowedChatDocument('application/vnd.ms-excel', 'rates.xls'), true);
+  assert.equal(isAllowedChatDocument('text/csv', 'orders.csv'), true);
+  assert.equal(isAllowedChatDocument('text/plain', 'notes.txt'), true);
+});
+
+test('chat documents: falls back to extension when picker reports octet-stream', () => {
+  assert.equal(isAllowedChatDocument('application/octet-stream', 'report.pdf'), true);
+  assert.equal(isAllowedChatDocument('application/octet-stream', 'rates.csv'), true);
+  assert.equal(isAllowedChatDocument('application/octet-stream', 'virus.exe'), false);
+});
+
+test('chat documents: rejects executables and unknown types', () => {
+  assert.equal(isAllowedChatDocument('application/x-msdownload', 'setup.exe'), false);
+  assert.equal(isAllowedChatDocument('application/javascript', 'script.js'), false);
+  assert.equal(isAllowedChatDocument('', ''), false);
 });
 
 test('order priority: legacy HIGH/LOW maps', () => {

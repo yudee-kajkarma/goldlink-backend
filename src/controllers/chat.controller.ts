@@ -11,7 +11,7 @@ import { messageToPlain } from '../utils/messagePayload.js';
 import { enrichChatMessageForClient } from '../utils/chatMessageSerialize.js';
 import { isReservedChatPathSegment } from '../constants/chat.constants.js';
 import { isOrderChatParticipant } from '../utils/chatAccess.util.js';
-import { MAX_VOICE_DURATION_SECONDS } from '../constants/media.constants.js';
+import { MAX_VOICE_DURATION_SECONDS, isAllowedChatDocument } from '../constants/media.constants.js';
 import {
   aggregateChatRooms,
   countUnreadChatMessagesForUser,
@@ -127,7 +127,9 @@ async function fanOutNewOrderChatMessage(
           ? '[Image]'
           : mt === 'video'
             ? '[Video]'
-            : '[Voice]';
+            : mt === 'file'
+              ? `[Document] ${plain.fileName ?? ''}`.trim()
+              : '[Voice]';
     const sender = await User.findById(newMessage.senderId).select('name').lean();
     await notifyNewChatMessageIfNotInRoom({
       io: io ?? null,
@@ -687,6 +689,97 @@ export const sendChatVoice = async (req: AuthRequest, res: Response, next: NextF
       content: '',
       mediaUrl,
       duration: durationSec,
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
+    });
+
+    const participants = {
+      createdById: idKey(order.createdBy),
+      assignedToId: idKey(order.assignedTo),
+    };
+
+    const responsePayload = await fanOutNewOrderChatMessage(
+      newMessage,
+      threadId,
+      recipientId,
+      participants,
+      req.user
+    );
+    return res.status(201).json({ success: true, data: responsePayload });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sendChatDocument = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, message: 'Not authenticated', errorCode: 'GL_AUTH_001' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No document uploaded', errorCode: 'GL_VAL_002' });
+    }
+    if (!isAllowedChatDocument(req.file.mimetype, req.file.originalname)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only document files (PDF, Word, Excel, PowerPoint, CSV, TXT) are allowed',
+        errorCode: 'GL_VAL_001',
+      });
+    }
+
+    const { orderId, chatId } = req.body as { orderId?: string; chatId?: string };
+    const threadId = String(orderId ?? chatId ?? '').trim();
+
+    const order = await Order.findById(threadId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found', errorCode: 'GL_NOT_FOUND_002' });
+    }
+
+    if (req.user?.role === 'ADMIN' && !isOrderChatParticipant(order, req.user._id.toString())) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin can view chat history but only order participants can send documents',
+        errorCode: 'GL_AUTH_001',
+      });
+    }
+
+    const userId = req.user._id.toString();
+    if (!userMayAccessOrderChat(order, userId, req.user?.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access to this chat',
+        errorCode: 'GL_AUTH_001',
+      });
+    }
+
+    let mediaUrl: string;
+    try {
+      const mediaKey = await s3Service.uploadFile(
+        req.file.buffer,
+        req.file.mimetype,
+        'chat',
+        threadId,
+        'documents'
+      );
+      mediaUrl = s3Service.toPublicUrl(mediaKey);
+    } catch (uploadErr) {
+      console.error('sendChatDocument: S3 upload failed', uploadErr);
+      return res.status(500).json({ success: false, message: 'Document upload failed', errorCode: 'GL_SRV_001' });
+    }
+
+    const createdBy = idKey(order.createdBy);
+    const assignedTo = idKey(order.assignedTo);
+    const recipientId = userId === createdBy ? assignedTo : createdBy;
+
+    const newMessage = await Message.create({
+      orderId: new Types.ObjectId(threadId),
+      senderId: req.user._id,
+      receiverId: new Types.ObjectId(recipientId),
+      messageType: 'file',
+      content: '',
+      mediaUrl,
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
       fileSize: req.file.size,

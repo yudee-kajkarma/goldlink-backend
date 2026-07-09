@@ -182,7 +182,9 @@ export async function aggregateChatRooms(
                     ? '[Video]'
                     : lm.messageType === 'voice'
                       ? '[Voice]'
-                      : '',
+                      : lm.messageType === 'file'
+                        ? '[Document]'
+                        : '',
             messageType: String(lm.messageType ?? 'text'),
             createdAt: lm.createdAt,
           }

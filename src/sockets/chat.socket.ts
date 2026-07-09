@@ -100,7 +100,7 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
         throw new Error('content is required for text messages');
       }
 
-      if (['image', 'video', 'voice'].includes(messageType) && !mediaUrl) {
+      if (['image', 'video', 'voice', 'file'].includes(messageType) && !mediaUrl) {
         throw new Error(`mediaUrl is required for ${messageType} messages`);
       }
 
@@ -180,7 +180,9 @@ export default function registerChatHandlers(io: Server, socket: Socket) {
             ? '[Image]'
             : mt === 'video'
               ? '[Video]'
-              : '[Voice]';
+              : mt === 'file'
+                ? '[Document]'
+                : '[Voice]';
 
       const senderDisplayName =
         typeof (socket as unknown as { user?: { name?: string } }).user?.name === 'string'

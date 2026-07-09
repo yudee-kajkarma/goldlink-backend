@@ -129,7 +129,7 @@ export const sendMessageSchema = z
   .object({
     orderId: objectIdSchema,
     content: z.string().optional(),
-    messageType: z.enum(['text', 'image', 'video', 'voice']).optional(),
+    messageType: z.enum(['text', 'image', 'video', 'voice', 'file']).optional(),
     mediaUrl: z.string().optional(),
     duration: z.coerce.number().nonnegative().optional(),
   })
@@ -138,7 +138,7 @@ export const sendMessageSchema = z
     if (mt === 'text' && (!data.content || data.content.length === 0)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'content is required for text messages' });
     }
-    if (['image', 'video', 'voice'].includes(mt) && !data.mediaUrl) {
+    if (['image', 'video', 'voice', 'file'].includes(mt) && !data.mediaUrl) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `mediaUrl is required for ${mt} messages` });
     }
     if (mt === 'voice') {
@@ -165,6 +165,7 @@ export const sendChatImageBodySchema = z
   .refine((d) => Boolean(d.orderId ?? d.chatId), { message: 'orderId or chatId is required' });
 
 export const sendChatVideoBodySchema = sendChatImageBodySchema;
+export const sendChatDocumentBodySchema = sendChatImageBodySchema;
 
 export const sendChatVoiceBodySchema = z
   .object({
